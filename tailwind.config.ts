@@ -2,12 +2,10 @@ import type { Config } from "tailwindcss";
 
 export default {
 	darkMode: ["class"],
-	content: [
-		"./pages/**/*.{ts,tsx}",
-		"./components/**/*.{ts,tsx}",
-		"./app/**/*.{ts,tsx}",
-		"./src/**/*.{ts,tsx}",
-	],
+	 content: [
+    "./index.html",          // Πιάσε το entry HTML
+    "./src/**/*.{js,ts,jsx,tsx}",  // Πιάσε όλα τα components & pages
+  ],
 	prefix: "",
 	theme: {
 		container: {
