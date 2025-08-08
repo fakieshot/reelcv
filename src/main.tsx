@@ -1,31 +1,61 @@
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import "./index.css";
+
 import Landing from "./pages/Landing";
-import "./index.css";   // ← Φορτώνει το Tailwind CSS
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import EmployerDashboard from "./pages/dashboard/EmployerDashboard";
-import SeekerDashboard   from "./pages/dashboard/SeekerDashboard";
-import NotFound           from "./pages/NotFound";
 import CheckEmail from "./pages/CheckEmail";
+import NotFound from "./pages/NotFound";
+
+// DASHBOARD
+import DashboardLayout from "@/components/layout/DashboardLayout";
+import DashboardIndex from "@/pages/dashboard/Index";
+import EmployerDashboard from "./pages/dashboard/EmployerDashboard";
+import SeekerDashboard from "./pages/dashboard/SeekerDashboard";
+
+// GUARDS
+import RequireAuth from "@/components/auth/RequireAuth";
+import RoleGate from "@/components/auth/RoleGate";
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
     <Routes>
-      {/* Εδώ λες εσύ ποια είναι η «αρχική» */}
       <Route path="/" element={<Landing />} />
-
-      {/* Αν θες, μπορείς να έχεις και εναλλακτικό Index: */}
-      {/* <Route path="/" element={<Index />} /> */}
-
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-
-      {/* Dashboard routes */}
-      <Route path="/dashboard/employer" element={<EmployerDashboard />} />
-      <Route path="/dashboard/jobseeker" element={<SeekerDashboard />} />
       <Route path="/check-email" element={<CheckEmail />} />
-      {/* 404 */}
+
+      {/* NESTED DASHBOARD ROUTES */}
+      <Route
+        path="/dashboard"
+        element={
+          <RequireAuth verified>
+            <DashboardLayout />
+          </RequireAuth>
+        }
+      >
+        <Route index element={<DashboardIndex />} />
+      {/* Candidate */}
+        <Route
+          path="employer"
+          element={
+            <RoleGate allow="employer">
+              <EmployerDashboard />
+            </RoleGate>
+          }
+        />
+
+        <Route
+          path="jobseeker"
+          element={
+            <RoleGate allow="jobseeker">
+              <SeekerDashboard />
+            </RoleGate>
+          }
+        />
+      </Route>
+
       <Route path="*" element={<NotFound />} />
     </Routes>
   </BrowserRouter>

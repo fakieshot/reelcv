@@ -45,7 +45,7 @@ export default function Login() {
       const { role } = userDoc.data();
 
       // Redirect to home or role-based dashboard
-      navigate("/");
+           navigate("/dashboard", { replace: true });
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {
