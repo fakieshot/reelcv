@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { auth, firestore } from "@/lib/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { useLocation } from "react-router-dom";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -13,14 +14,15 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [info, setInfo] = useState(verifyEmailFlag ? "Verification email sent! Check your inbox." : "");
+  const [info, setInfo] = useState(verifyEmailFlag ? "" : "");
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const verifyMsg = params.get("verifyEmail");
+  const justVerified = params.get("verified");
 
-  useEffect(() => {
-    if (verifyEmailFlag) {
-      setInfo("A verification link was sent to your email. Please verify before logging in.");
-    }
-  }, [verifyEmailFlag]);
 
+
+  
   const handleLogin = async () => {
     setError("");
     setInfo("");
@@ -54,9 +56,25 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 to-blue-50 p-6">
       <div className="w-full max-w-sm bg-white rounded-xl shadow-lg p-8 space-y-4">
-        <h1 className="text-3xl font-bold text-center text-gray-800">Login to ReelCV</h1>
+        <h1 className="text-3xl font-bold text-center text-gray-800">Login to ReelCV</h1>    
         {info && <p className="text-green-600 text-sm text-center">{info}</p>}
         {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+       
+        {(verifyMsg || justVerified) && (
+          <div
+            className={`rounded-lg p-3 text-sm border ${
+              justVerified
+                ? "bg-green-50 text-green-700 border-green-200"
+                : "bg-indigo-50 text-indigo-700 border-indigo-200"
+            }`}
+          >
+            {justVerified
+              ? "Email verified! You can sign in now."
+              : "We’ve sent you a verification link. Please check your inbox (and spam)."}
+          </div>
+        )}
+        {/* ---------------------------------------- */}
+       
         <input
           type="email"
           placeholder="Email Address"

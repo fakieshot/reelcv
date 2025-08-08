@@ -7,7 +7,7 @@ import Register from "./pages/Register";
 import EmployerDashboard from "./pages/dashboard/EmployerDashboard";
 import SeekerDashboard   from "./pages/dashboard/SeekerDashboard";
 import NotFound           from "./pages/NotFound";
-
+import CheckEmail from "./pages/CheckEmail";
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
@@ -24,7 +24,7 @@ createRoot(document.getElementById("root")!).render(
       {/* Dashboard routes */}
       <Route path="/dashboard/employer" element={<EmployerDashboard />} />
       <Route path="/dashboard/jobseeker" element={<SeekerDashboard />} />
-
+      <Route path="/check-email" element={<CheckEmail />} />
       {/* 404 */}
       <Route path="*" element={<NotFound />} />
     </Routes>
