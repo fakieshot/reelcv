@@ -64,18 +64,21 @@
     /* Animations */
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  /* Sidebar palette -> μοβ */
+  --sidebar-background: hsl(258 85% 52%);         /* βασικό μοβ background */
+  --sidebar-foreground: hsl(0 0% 100%);           /* λευκό κείμενο */
+  --sidebar-primary: hsl(258 85% 60%);            /* έντονο μοβ για CTA στο sidebar */
+  --sidebar-primary-foreground: hsl(0 0% 100%);   /* λευκό πάνω στο primary */
 
-    /* Sidebar */
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 220 9% 46%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 14% 96%;
-    --sidebar-accent-foreground: 217 91% 60%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217 91% 60%;
+  /* Πιο διακριτικό μοβ για hover/active */
+  --sidebar-accent: hsl(258 100% 85% / 0.16);     /* μοβ “film” 16% */
+  --sidebar-accent-foreground: hsl(0 0% 100%);    /* λευκό κείμενο πάνω του */
+
+  /* Διακριτικό border/ring σε μοβ τόνους */
+  --sidebar-border: hsl(258 60% 55% / 0.25);
+  --sidebar-ring: hsl(258 85% 60%);
   }
-
+  
   .dark {
     --background: 222 84% 4.9%;
     --foreground: 0 0% 98%;

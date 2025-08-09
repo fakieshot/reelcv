@@ -13,6 +13,8 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import DashboardIndex from "@/pages/dashboard/Index";
 import EmployerDashboard from "./pages/dashboard/EmployerDashboard";
 import SeekerDashboard from "./pages/dashboard/SeekerDashboard";
+// src/main.tsx (or wherever you define routes)
+import UploadCenter from "./pages/dashboard/Upload";
 
 // GUARDS
 import RequireAuth from "@/components/auth/RequireAuth";
@@ -25,7 +27,7 @@ createRoot(document.getElementById("root")!).render(
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/check-email" element={<CheckEmail />} />
-
+     
       {/* NESTED DASHBOARD ROUTES */}
       <Route
         path="/dashboard"
@@ -33,6 +35,7 @@ createRoot(document.getElementById("root")!).render(
           <RequireAuth verified>
             <DashboardLayout />
           </RequireAuth>
+          
         }
       >
         <Route index element={<DashboardIndex />} />
@@ -54,6 +57,10 @@ createRoot(document.getElementById("root")!).render(
             </RoleGate>
           }
         />
+
+ <Route path="upload" element={<RoleGate allow="jobseeker"><UploadCenter /></RoleGate>} />
+
+
       </Route>
 
       <Route path="*" element={<NotFound />} />
