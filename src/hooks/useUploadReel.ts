@@ -1,18 +1,36 @@
 // src/hooks/useUploadReel.ts
 import { useCallback, useEffect, useRef, useState } from "react";
 import { auth, firestore, storage } from "@/lib/firebase";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import {
+  ref,
+  uploadBytesResumable,
+  getDownloadURL,
+  type UploadTask,
+} from "firebase/storage";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 type UploadState = "idle" | "running" | "success" | "error" | "canceled";
 
-export function useUploadReel(maxSizeMB = 200) {
+type UploadDonePayload = {
+  reelId: string;          // ίδιο με το fileId
+  url: string;             // download URL
+  storagePath: string;     // π.χ. users/<uid>/reels/<fileId>
+  filename: string;
+  size: number;
+  contentType: string;
+};
+
+type UseUploadReelOptions = {
+  onDone?: (payload: UploadDonePayload) => void;
+};
+
+export function useUploadReel(maxSizeMB = 200, opts?: UseUploadReelOptions) {
   const [state, setState] = useState<UploadState>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [downloadURL, setDownloadURL] = useState<string | null>(null);
 
-  const taskRef = useRef<ReturnType<typeof uploadBytesResumable> | null>(null);
+  const taskRef = useRef<UploadTask | null>(null);
 
   const reset = useCallback(() => {
     setState("idle");
@@ -32,7 +50,7 @@ export function useUploadReel(maxSizeMB = 200) {
         setError(null);
         setDownloadURL(null);
 
-        // Έλεγχοι client-side
+        // Client-side checks
         if (!auth.currentUser) throw new Error("Not authenticated.");
         if (!file) throw new Error("No file selected.");
 
@@ -45,9 +63,9 @@ export function useUploadReel(maxSizeMB = 200) {
         }
 
         const uid = auth.currentUser.uid;
-        const fileId = crypto.randomUUID(); // ή push id
-        const path = `users/${uid}/reels/${fileId}`; // ταιριάζει με rules
-        const storageRef = ref(storage, path);
+        const reelId = crypto.randomUUID(); // χρησιμοποιείται και ως doc id
+        const storagePath = `users/${uid}/reels/${reelId}`;
+        const storageRef = ref(storage, storagePath);
 
         const metadata = {
           contentType: file.type,
@@ -64,7 +82,9 @@ export function useUploadReel(maxSizeMB = 200) {
         task.on(
           "state_changed",
           (snap) => {
-            const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+            const pct = Math.round(
+              (snap.bytesTransferred / snap.totalBytes) * 100
+            );
             setProgress(pct);
           },
           (err) => {
@@ -76,19 +96,31 @@ export function useUploadReel(maxSizeMB = 200) {
             setDownloadURL(url);
             setState("success");
 
-            // γράψε metadata στο Firestore
+            // Γράψε metadata στο Firestore
             await setDoc(
-              doc(firestore, "users", uid, "reels", fileId),
+              doc(firestore, "users", uid, "reels", reelId),
               {
-                storagePath: path,
+                storagePath,
                 downloadURL: url,
                 name: file.name,
                 size: file.size,
                 type: file.type,
                 createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+                visibility: "private",
               },
               { merge: true }
             );
+
+            // Κάλεσε τον consumer
+            opts?.onDone?.({
+              reelId,
+              url,
+              storagePath,
+              filename: file.name,
+              size: file.size,
+              contentType: file.type,
+            });
           }
         );
       } catch (e: any) {
@@ -96,16 +128,15 @@ export function useUploadReel(maxSizeMB = 200) {
         setError(e?.message || "Upload failed");
       }
     },
-    [maxSizeMB]
+    [maxSizeMB, opts]
   );
 
-  // καθάρισμα αν απομακρυνθεί το component
- useEffect(() => {
-  return () => {
-    taskRef.current?.cancel();
-  };
-}, []);
-
+  // Καθαρισμός όταν απομακρυνθεί το component
+  useEffect(() => {
+    return () => {
+      taskRef.current?.cancel();
+    };
+  }, []);
 
   return { state, progress, error, downloadURL, upload, cancel, reset };
 }

@@ -1,49 +1,108 @@
-import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Video, 
-  Mic, 
-  Plus, 
-  X, 
-  Save, 
+// src/pages/dashboard/ReelCV.tsx
+import { useMemo, useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Video,
+  Mic,
+  Plus,
+  X,
+  Save,
   Eye,
   Upload,
   Play,
   Linkedin,
   Github,
   Globe,
-} from 'lucide-react';
+  Loader2,
+} from "lucide-react";
 
-const ReelCV = () => {
-  const [skills, setSkills] = useState(['React', 'TypeScript', 'Node.js']);
-  const [newSkill, setNewSkill] = useState('');
-  const [experiences, setExperiences] = useState([
-    {
-      id: 1,
-      title: 'Senior Frontend Developer',
-      company: 'TechCorp Inc.',
-      duration: '2021 - Present',
-      description: 'Led development of modern web applications using React and TypeScript.',
-    }
-  ]);
+import { useToast } from "@/hooks/use-toast";
+import { useUserProfile } from "@/hooks/useUserProfile";
+
+export default function ReelCV() {
+  const { toast } = useToast();
+
+  // autosave on, 600ms
+  const {
+    profile,
+    setProfile,
+    save,
+    loading,
+    saving,
+    error,
+    isDirty,
+    lastSavedAt,
+  } = useUserProfile(true, 600);
+
+  const [newSkill, setNewSkill] = useState("");
+
+  const skills = useMemo(() => profile?.skills ?? [], [profile?.skills]);
 
   const addSkill = () => {
-    if (newSkill.trim() && !skills.includes(newSkill.trim())) {
-      setSkills([...skills, newSkill.trim()]);
-      setNewSkill('');
+    const s = newSkill.trim();
+    if (!s) return;
+    if (skills.includes(s)) return;
+    setProfile((p) => ({ ...(p || {}), skills: [...(p?.skills ?? []), s] }));
+    setNewSkill("");
+  };
+
+  const removeSkill = (toRemove: string) => {
+    setProfile((p) => ({
+      ...(p || {}),
+      skills: (p?.skills ?? []).filter((x) => x !== toRemove),
+    }));
+  };
+
+  const onChange =
+    (key: "fullName" | "title" | "bio" | "location") =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const val = e.target.value;
+      setProfile((p) => ({ ...(p || {}), [key]: val }));
+    };
+
+  const onChangeSocial =
+    (key: "linkedin" | "github" | "site") =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      setProfile((p) => ({
+        ...(p || {}),
+        socials: { ...(p?.socials ?? {}), [key]: val },
+      }));
+    };
+
+  const handleManualSave = async () => {
+    try {
+      await save();
+      toast({ title: "Saved", description: "Your changes have been saved." });
+    } catch (e: any) {
+      toast({
+        title: "Save failed",
+        description: e?.message ?? "Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
-  const removeSkill = (skillToRemove: string) => {
-    setSkills(skills.filter(skill => skill !== skillToRemove));
-  };
+  const savedLabel =
+    lastSavedAt && !saving
+      ? `Saved ${new Intl.DateTimeFormat(undefined, {
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(lastSavedAt)}`
+      : "";
 
   return (
     <div className="space-y-8">
@@ -55,17 +114,49 @@ const ReelCV = () => {
             Create and manage your video CV profile
           </p>
         </div>
-        <div className="flex space-x-3">
+
+        <div className="flex items-center gap-3">
+          {loading && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading…
+            </span>
+          )}
+          {!loading && savedLabel && (
+            <span className="text-xs text-muted-foreground">{savedLabel}</span>
+          )}
+
           <Button variant="outline">
             <Eye className="w-4 h-4 mr-2" />
             Preview
           </Button>
-          <Button className="gradient-primary">
-            <Save className="w-4 h-4 mr-2" />
-            Save Changes
+
+          <Button
+            onClick={handleManualSave}
+            disabled={!isDirty || loading || saving}
+            className="gradient-primary"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving…
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                Save Changes
+              </>
+            )}
           </Button>
         </div>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
 
       <Tabs defaultValue="profile" className="space-y-6">
         <TabsList className="grid w-full grid-cols-4">
@@ -88,37 +179,59 @@ const ReelCV = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="fullName">Full Name</Label>
-                  <Input id="fullName" defaultValue="John Doe" />
+                  <Input
+                    id="fullName"
+                    value={profile?.fullName ?? ""}
+                    onChange={onChange("fullName")}
+                    disabled={loading}
+                  />
                 </div>
                 <div>
                   <Label htmlFor="jobTitle">Job Title</Label>
-                  <Input id="jobTitle" defaultValue="Senior Frontend Developer" />
+                  <Input
+                    id="jobTitle"
+                    value={profile?.title ?? ""}
+                    onChange={onChange("title")}
+                    disabled={loading}
+                  />
                 </div>
               </div>
-              
+
               <div>
                 <Label htmlFor="bio">Professional Bio</Label>
-                <Textarea 
-                  id="bio" 
+                <Textarea
+                  id="bio"
                   rows={4}
-                  defaultValue="Passionate frontend developer with 5+ years of experience building modern web applications. I love creating intuitive user experiences and working with cutting-edge technologies."
+                  value={profile?.bio ?? ""}
+                  onChange={onChange("bio")}
+                  disabled={loading}
                 />
               </div>
 
               <div>
                 <Label htmlFor="location">Location</Label>
-                <Input id="location" defaultValue="San Francisco, CA" />
+                <Input
+                  id="location"
+                  value={profile?.location ?? ""}
+                  onChange={onChange("location")}
+                  disabled={loading}
+                />
               </div>
 
               <div>
                 <Label>Skills</Label>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {skills.map((skill) => (
-                    <Badge key={skill} variant="secondary" className="flex items-center space-x-1">
+                    <Badge
+                      key={skill}
+                      variant="secondary"
+                      className="flex items-center space-x-1"
+                    >
                       <span>{skill}</span>
                       <button
                         onClick={() => removeSkill(skill)}
                         className="ml-1 text-muted-foreground hover:text-destructive"
+                        disabled={loading}
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -130,9 +243,10 @@ const ReelCV = () => {
                     placeholder="Add a skill"
                     value={newSkill}
                     onChange={(e) => setNewSkill(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && addSkill()}
+                    onKeyDown={(e) => e.key === "Enter" && addSkill()}
+                    disabled={loading}
                   />
-                  <Button onClick={addSkill} variant="outline">
+                  <Button onClick={addSkill} variant="outline" disabled={loading}>
                     <Plus className="w-4 h-4" />
                   </Button>
                 </div>
@@ -192,7 +306,9 @@ const ReelCV = () => {
                   <div className="mx-auto w-16 h-16 bg-accent rounded-full flex items-center justify-center mb-4">
                     <Mic className="w-8 h-8 text-white" />
                   </div>
-                  <h3 className="text-lg font-medium mb-2">No Voice Introduction</h3>
+                  <h3 className="text-lg font-medium mb-2">
+                    No Voice Introduction
+                  </h3>
                   <p className="text-muted-foreground mb-4">
                     Add a 30-60 second voice introduction to make your profile more personal
                   </p>
@@ -205,7 +321,6 @@ const ReelCV = () => {
             </Card>
           </div>
 
-          {/* Video Tips */}
           <Card className="shadow-soft">
             <CardHeader>
               <CardTitle>Video CV Tips</CardTitle>
@@ -249,22 +364,24 @@ const ReelCV = () => {
               </Button>
             </CardHeader>
             <CardContent className="space-y-6">
-              {experiences.map((exp, index) => (
-                <div key={exp.id}>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-foreground">{exp.title}</h3>
-                      <p className="text-primary">{exp.company}</p>
-                      <p className="text-sm text-muted-foreground">{exp.duration}</p>
-                      <p className="text-sm text-muted-foreground mt-2">{exp.description}</p>
-                    </div>
-                    <Button variant="ghost" size="sm">
-                      <X className="w-4 h-4" />
-                    </Button>
+              <div>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-foreground">
+                      Senior Frontend Developer
+                    </h3>
+                    <p className="text-primary">TechCorp Inc.</p>
+                    <p className="text-sm text-muted-foreground">2021 - Present</p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Led development of modern web applications using React and TypeScript.
+                    </p>
                   </div>
-                  {index < experiences.length - 1 && <Separator className="mt-6" />}
+                  <Button variant="ghost" size="sm">
+                    <X className="w-4 h-4" />
+                  </Button>
                 </div>
-              ))}
+              </div>
+              <Separator />
             </CardContent>
           </Card>
         </TabsContent>
@@ -286,7 +403,12 @@ const ReelCV = () => {
                   </div>
                   <div className="flex-1">
                     <Label>LinkedIn Profile</Label>
-                    <Input placeholder="https://linkedin.com/in/johndoe" />
+                    <Input
+                      placeholder="https://linkedin.com/in/johndoe"
+                      value={profile?.socials?.linkedin ?? ""}
+                      onChange={onChangeSocial("linkedin")}
+                      disabled={loading}
+                    />
                   </div>
                 </div>
 
@@ -296,7 +418,12 @@ const ReelCV = () => {
                   </div>
                   <div className="flex-1">
                     <Label>GitHub Profile</Label>
-                    <Input placeholder="https://github.com/johndoe" />
+                    <Input
+                      placeholder="https://github.com/johndoe"
+                      value={profile?.socials?.github ?? ""}
+                      onChange={onChangeSocial("github")}
+                      disabled={loading}
+                    />
                   </div>
                 </div>
 
@@ -306,7 +433,12 @@ const ReelCV = () => {
                   </div>
                   <div className="flex-1">
                     <Label>Portfolio Website</Label>
-                    <Input placeholder="https://johndoe.dev" />
+                    <Input
+                      placeholder="https://johndoe.dev"
+                      value={profile?.socials?.site ?? ""}
+                      onChange={onChangeSocial("site")}
+                      disabled={loading}
+                    />
                   </div>
                 </div>
               </div>
@@ -316,6 +448,4 @@ const ReelCV = () => {
       </Tabs>
     </div>
   );
-};
-
-export default ReelCV;
+}

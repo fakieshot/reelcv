@@ -1,19 +1,33 @@
 // src/pages/dashboard/Upload.tsx
 import { useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { UploadCloud, Video } from "lucide-react";
 import { useUploadReel } from "@/hooks/useUploadReel";
+import { useToast } from "@/hooks/use-toast";
 
 const MAX_SIZE_MB = 200;
 
 export default function UploadCenter() {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
   const { state, progress, error, downloadURL, upload, cancel, reset } =
-    useUploadReel(MAX_SIZE_MB);
+    useUploadReel(MAX_SIZE_MB, {
+      onDone: ({ url }) => {
+        toast({
+          title: "Upload complete ✅",
+          description: "Your ReelCV is ready in My ReelCV.",
+        });
+        // Αν θέλεις να περάσεις και το url μέσω state:
+        navigate("/dashboard/reelcv", { state: { url } });
+      },
+    });
 
   const onPick = () => inputRef.current?.click();
 
@@ -59,9 +73,7 @@ export default function UploadCenter() {
               <Video className="h-7 w-7 text-primary" />
             </div>
 
-            <p className="mb-4 text-lg">
-              Drag and drop a file here or
-            </p>
+            <p className="mb-4 text-lg">Drag and drop a file here or</p>
 
             <Button onClick={onPick} disabled={state === "running"}>
               Choose File
@@ -80,7 +92,7 @@ export default function UploadCenter() {
             />
           </div>
 
-          {/* progress */}
+          {/* Progress / Actions */}
           {state !== "idle" && (
             <div className="mt-6 space-y-3">
               <div className="flex items-center justify-between text-sm">
@@ -93,31 +105,46 @@ export default function UploadCenter() {
                 </span>
                 {state === "running" && <span>{progress}%</span>}
               </div>
-              <Progress value={state === "running" ? progress : state === "success" ? 100 : 0} />
+
+              <Progress
+                value={
+                  state === "running" ? progress : state === "success" ? 100 : 0
+                }
+              />
+
               <div className="flex gap-2">
                 {state === "running" && (
                   <Button variant="outline" onClick={cancel}>
                     Cancel
                   </Button>
                 )}
-                {(state === "success" || state === "error" || state === "canceled") && (
+                {(state === "success" ||
+                  state === "error" ||
+                  state === "canceled") && (
                   <Button variant="ghost" onClick={reset}>
                     Reset
                   </Button>
                 )}
                 {downloadURL && (
-                  <a className="ml-auto text-sm underline" href={downloadURL} target="_blank" rel="noreferrer">
+                  <a
+                    className="ml-auto text-sm underline"
+                    href={downloadURL}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     Open file
                   </a>
                 )}
               </div>
+
               {error && <p className="text-sm text-destructive">{error}</p>}
             </div>
           )}
 
-          {/* tip */}
+          {/* Tip */}
           <p className="mt-8 text-sm text-muted-foreground">
-            Tip: Keep your ReelCV short (60–90s) and to the point — intro, skills, a quick example, and what you’re looking for.
+            Tip: Keep your ReelCV short (60–90s) and to the point — intro,
+            skills, a quick example, and what you’re looking for.
           </p>
         </CardContent>
       </Card>

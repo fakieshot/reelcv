@@ -19,6 +19,7 @@ import UploadCenter from "./pages/dashboard/Upload";
 // GUARDS
 import RequireAuth from "@/components/auth/RequireAuth";
 import RoleGate from "@/components/auth/RoleGate";
+import ReelCV from "./pages/dashboard/ReelCV";
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
@@ -59,6 +60,7 @@ createRoot(document.getElementById("root")!).render(
         />
 
  <Route path="upload" element={<RoleGate allow="jobseeker"><UploadCenter /></RoleGate>} />
+<Route path="reelcv" element={<RoleGate allow="jobseeker"><ReelCV /></RoleGate>} />
 
 
       </Route>
