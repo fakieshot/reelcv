@@ -116,7 +116,7 @@ function ConfirmLeaveModal({
 }
 
 /* ────────────────────────────────────────────────────────────── */
-/* Upload Panel (όπως το έχεις) */
+/* Upload Panel (όπως ήταν, με "Open file" διατηρημένο) */
 
 function UploadPanel() {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -248,7 +248,7 @@ function UploadPanel() {
 }
 
 /* ────────────────────────────────────────────────────────────── */
-/* Recording Panel (κρατάει το preview & ειδοποιεί για draft) */
+/* Recording Panel (countdown + softer beep + Cancel Upload) */
 
 type RecordingPanelProps = {
   onDraftReady: (url: string) => void;
@@ -259,7 +259,9 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
   const { toast } = useToast();
   const {
     state: uploadState,
+    progress,
     upload,
+    cancel: cancelUpload,   // <-- to cancel upload
     reset: resetUpload,
   } = useUploadReel(MAX_SIZE_MB, {
     onDone: () => {
@@ -271,7 +273,10 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
     },
   });
 
-  const [state, setState] = useState<"idle" | "recording" | "stopped">("idle");
+  const [state, setState] = useState<
+    "idle" | "countdown" | "recording" | "stopped"
+  >("idle");
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [duration, setDuration] = useState(0);
   const [title, setTitle] = useState("Barista application - Seaside Café");
   const [visibility, setVisibility] = useState<Visibility>("private");
@@ -282,6 +287,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
+  const ctdRef = useRef<number | null>(null);
 
   const canRecord = useMemo(
     () => typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia,
@@ -292,6 +298,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
     return () => {
       stopTracks();
       if (timerRef.current) window.clearInterval(timerRef.current);
+      if (ctdRef.current) window.clearInterval(ctdRef.current);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -312,9 +319,13 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
     return stream;
   };
 
-  // live preview while recording
+  // live preview while recording OR during countdown
   useEffect(() => {
-    if (state === "recording" && videoRef.current && mediaRef.current) {
+    if (
+      (state === "recording" || state === "countdown") &&
+      videoRef.current &&
+      mediaRef.current
+    ) {
       const el = videoRef.current;
       el.srcObject = mediaRef.current;
       el.muted = true;
@@ -324,15 +335,46 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
       el.autoplay = true;
       el.play().catch(() => {});
     }
+    if (state === "stopped" && videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
   }, [state]);
+
+  // softer, cinematic-ish beep
+  const beep = () => {
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.value = 660; // λίγο πιο μαλακό από 880
+      gain.gain.value = 0.0;
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      const now = ctx.currentTime;
+      // απαλή είσοδος/έξοδος (ADSR-ish)
+      gain.gain.linearRampToValueAtTime(0.03, now + 0.02);
+      gain.gain.linearRampToValueAtTime(0.02, now + 0.10);
+      gain.gain.linearRampToValueAtTime(0.0, now + 0.20);
+
+      osc.start(now);
+      osc.stop(now + 0.22);
+
+      osc.onended = () => ctx.close();
+    } catch {
+      /* ignore */
+    }
+  };
 
   async function startRecording() {
     if (!canRecord) return;
     const stream = await ensureStream();
 
-    setState("recording");
-    setDuration(0);
-
+    // show live preview immediately
     if (videoRef.current) {
       const el = videoRef.current;
       el.srcObject = stream;
@@ -344,6 +386,30 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
       await el.play().catch(() => {});
     }
 
+    // start countdown (not recorded)
+    setCountdown(3);
+    setState("countdown");
+    beep();
+    if (ctdRef.current) window.clearInterval(ctdRef.current);
+    ctdRef.current = window.setInterval(() => {
+      setCountdown((n) => {
+        const next = (n ?? 1) - 1;
+        if (next <= 0) {
+          if (ctdRef.current) window.clearInterval(ctdRef.current);
+          actuallyStartRecording(); // recorder starts AFTER countdown
+          return null;
+        }
+        beep();
+        return next;
+      });
+    }, 1000);
+  }
+
+  function actuallyStartRecording() {
+    if (!mediaRef.current) return;
+
+    setState("recording");
+    setDuration(0);
     chunksRef.current = [];
 
     const mime =
@@ -353,7 +419,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
         ? "video/webm;codecs=vp8"
         : "video/webm";
 
-    const rec = new (window as any).MediaRecorder(stream, {
+    const rec = new (window as any).MediaRecorder(mediaRef.current, {
       mimeType: mime,
       videoBitsPerSecond: 4_000_000,
     });
@@ -401,6 +467,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
       URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
     }
+    setCountdown(null);
     setDuration(0);
     setState("idle");
     resetUpload();
@@ -435,16 +502,38 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
           {/* Left: video surface */}
           <div className="rounded-xl border bg-black/5 overflow-hidden">
             <div className="relative aspect-[4/3] bg-black">
-              {state === "recording" ? (
-                <video
-                  ref={videoRef}
-                  playsInline
-                  muted
-                  autoPlay
-                  className={`w-full h-full object-cover ${
-                    isMobile ? "[transform:scaleX(-1)]" : ""
-                  }`}
-                />
+              {state === "recording" || state === "countdown" ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    playsInline
+                    muted
+                    autoPlay
+                    className={`w-full h-full object-cover ${
+                      isMobile ? "[transform:scaleX(-1)]" : ""
+                    }`}
+                  />
+                  {/* Cinematic countdown overlay */}
+                  {state === "countdown" && countdown !== null && (
+                    <div className="absolute inset-0 grid place-items-center bg-black/40">
+                      <div className="relative flex items-center justify-center">
+                        {/* soft glow ring */}
+                        <div className="absolute h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+                        {/* number card */}
+                        <div className="relative rounded-2xl bg-white/90 px-12 py-8 shadow-2xl ring-1 ring-black/5">
+                          <div className="text-center">
+                            <div className="text-6xl font-extrabold text-gray-900 leading-none animate-pulse">
+                              {countdown}
+                            </div>
+                            <div className="mt-2 text-sm text-gray-600 tracking-wide">
+                              Get ready…
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : previewUrl ? (
                 <video
                   key={previewUrl}
@@ -463,16 +552,22 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
                 </div>
               )}
 
-              {state === "recording" && (
-                <div className="absolute inset-x-0 bottom-0 p-3">
+              {(state === "recording" || state === "countdown") && (
+                <div className="absolute inset-x-0 bottom-0 p-3 pointer-events-none">
                   <div className="h-2 rounded bg-white/20 overflow-hidden">
                     <div
                       className="h-2 bg-red-500 transition-all"
-                      style={{ width: `${(duration / MAX_DURATION) * 100}%` }}
+                      style={{
+                        width: `${
+                          state === "recording"
+                            ? (duration / MAX_DURATION) * 100
+                            : 0
+                        }%`,
+                      }}
                     />
                   </div>
                   <div className="mt-1 text-right text-xs text-white/90">
-                    {secondsToMMSS(duration)}
+                    {state === "recording" ? secondsToMMSS(duration) : ""}
                   </div>
                 </div>
               )}
@@ -516,6 +611,14 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
               </div>
             )}
 
+            {state === "countdown" && (
+              <div className="flex gap-3">
+                <Button disabled className="flex-1" variant="secondary">
+                  Preparing…
+                </Button>
+              </div>
+            )}
+
             {state === "recording" && (
               <div className="flex gap-3">
                 <Button onClick={stopRecording} variant="secondary" className="flex-1">
@@ -525,7 +628,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
             )}
 
             {state === "stopped" && (
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-3 items-center w-full">
                 <Button variant="outline" onClick={redo}>
                   <Redo2 className="w-4 h-4 mr-2" />
                   Redo Recording
@@ -541,6 +644,33 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
                 >
                   Submit
                 </Button>
+
+                {/* Progress + Cancel Upload */}
+                {uploadState !== "idle" && (
+                  <div className="mt-4 w-full">
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span>
+                        {uploadState === "running" && "Uploading..."}
+                        {uploadState === "success" && "Completed"}
+                        {uploadState === "error" && "Failed"}
+                        {uploadState === "canceled" && "Canceled"}
+                      </span>
+                      {uploadState === "running" && <span>{progress}%</span>}
+                    </div>
+                    <Progress
+                      value={
+                        uploadState === "running" ? progress : uploadState === "success" ? 100 : 0
+                      }
+                    />
+                    {uploadState === "running" && (
+                      <div className="mt-2 flex justify-end">
+                        <Button variant="outline" size="sm" onClick={cancelUpload}>
+                          Cancel Upload
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -556,8 +686,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
 }
 
 /* ────────────────────────────────────────────────────────────── */
-/* Page: κρατά draft στο parent, δείχνει custom modal σε tab change,
-   και native warning σε refresh/close (browser limitation). */
+/* Page (tabs + custom leave modal) */
 
 export default function UploadCenter() {
   const [tab, setTab] = useState<"upload" | "record">("upload");
@@ -656,4 +785,3 @@ export default function UploadCenter() {
     </div>
   );
 }
-

@@ -58,9 +58,23 @@ export function useUploadReel(maxSizeMB = 200, opts?: UseUploadReelOptions) {
         if (sizeMB > maxSizeMB) {
           throw new Error(`File too large. Max ${maxSizeMB}MB`);
         }
-        if (!/^video\/(mp4|webm)$/.test(file.type)) {
+
+        // Δέχεται video/mp4 ή video/webm ακόμη κι αν υπάρχει ";codecs=..."
+        const type = (file.type || "").toLowerCase();
+        const isAllowed =
+          /^video\/(mp4|webm)(;.*)?$/i.test(type);
+
+        if (!isAllowed) {
           throw new Error("Only MP4 or WebM are allowed.");
         }
+
+        // "Καθαρό" contentType για metadata
+        const cleanContentType =
+          type.startsWith("video/webm")
+            ? "video/webm"
+            : type.startsWith("video/mp4")
+            ? "video/mp4"
+            : file.type || "application/octet-stream";
 
         const uid = auth.currentUser.uid;
         const reelId = crypto.randomUUID(); // χρησιμοποιείται και ως doc id
@@ -68,7 +82,7 @@ export function useUploadReel(maxSizeMB = 200, opts?: UseUploadReelOptions) {
         const storageRef = ref(storage, storagePath);
 
         const metadata = {
-          contentType: file.type,
+          contentType: cleanContentType,
           customMetadata: {
             uid,
             originalName: file.name,
@@ -104,7 +118,7 @@ export function useUploadReel(maxSizeMB = 200, opts?: UseUploadReelOptions) {
                 downloadURL: url,
                 name: file.name,
                 size: file.size,
-                type: file.type,
+                type: cleanContentType,
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
                 visibility: "private",
@@ -112,14 +126,14 @@ export function useUploadReel(maxSizeMB = 200, opts?: UseUploadReelOptions) {
               { merge: true }
             );
 
-            // Κάλεσε τον consumer
+            // Ενημέρωσε τον consumer
             opts?.onDone?.({
               reelId,
               url,
               storagePath,
               filename: file.name,
               size: file.size,
-              contentType: file.type,
+              contentType: cleanContentType,
             });
           }
         );
