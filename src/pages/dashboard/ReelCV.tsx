@@ -1,5 +1,5 @@
-// src/pages/dashboard/ReelCV.tsx
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Card,
   CardContent,
@@ -11,98 +11,368 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Video,
-  Mic,
-  Plus,
-  X,
-  Save,
   Eye,
-  Upload,
-  Play,
-  Linkedin,
-  Github,
+  Save,
   Globe,
+  Lock,
+  Link2,
+  Star,
+  Trash2,
+  Upload as UploadIcon,
+  Video,
+  Wand2,
   Loader2,
 } from "lucide-react";
-
 import { useToast } from "@/hooks/use-toast";
-import { useUserProfile } from "@/hooks/useUserProfile";
+import { useUserReels, ReelDoc } from "@/hooks/useUserReels";
+import { auth, firestore } from "@/lib/firebase";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
+/* ---------- tiny helpers ---------- */
+function formatBytes(n: number) {
+  if (!n && n !== 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(1)} ${units[i]}`;
+}
+function formatDate(ts?: any) {
+  try {
+    const d = ts?.toDate ? ts.toDate() : ts;
+    return d ? new Date(d).toLocaleDateString() : "";
+  } catch {
+    return "";
+  }
+}
+const deepEqual = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const debounce = <T extends (...args: any[]) => void>(fn: T, ms = 800) => {
+  let t: any;
+  return (...args: Parameters<T>) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+};
+
+/* ---------- Profile form shape ---------- */
+type ProfileData = {
+  fullName: string;
+  jobTitle: string;
+  bio: string;
+  location: string;
+  skills: string[];
+  social: { linkedin?: string; github?: string; website?: string };
+};
+
+const initialProfile: ProfileData = {
+  fullName: "John Doe",
+  jobTitle: "Senior Frontend Developer",
+  bio:
+    "Passionate frontend developer with 5+ years of experience building modern web applications. I love creating intuitive user experiences and working with cutting-edge technologies.",
+  location: "San Francisco, CA",
+  skills: ["React", "TypeScript", "Node.js"],
+  social: { linkedin: "", github: "", website: "" },
+};
+
+/* ---------- Reel card ---------- */
+type ReelCardProps = {
+  reel: ReelDoc;
+  isPrimary?: boolean;
+  onSetPrimary: (id: string) => Promise<void> | void;
+  onVisibility: (id: string, v: "private" | "unlisted" | "public") => Promise<void> | void;
+  onCopy: (url: string) => void;
+  onDelete: (reel: ReelDoc) => Promise<void> | void;
+};
+
+function ReelCard({
+  reel,
+  isPrimary,
+  onSetPrimary,
+  onVisibility,
+  onCopy,
+  onDelete,
+}: ReelCardProps) {
+  const visibility = reel.visibility ?? "private";
+  const pill =
+    visibility === "public"
+      ? "bg-emerald-100 text-emerald-700"
+      : visibility === "unlisted"
+      ? "bg-amber-100 text-amber-700"
+      : "bg-gray-100 text-gray-700";
+
+  return (
+    <Card className="shadow-soft overflow-hidden">
+      <div className="relative aspect-[4/3] bg-black">
+        <video
+          src={reel.downloadURL}
+          className="w-full h-full object-cover"
+          controls
+          preload="metadata"
+          playsInline
+        />
+        <div className="absolute left-3 top-3">
+          <span className={`rounded-full px-2 py-1 text-xs font-medium ${pill}`}>
+            {visibility}
+          </span>
+        </div>
+        {isPrimary && (
+          <div className="absolute right-3 top-3">
+            <span className="rounded-full bg-yellow-400/90 text-black text-xs font-semibold px-2 py-1 flex items-center gap-1">
+              <Star className="h-3 w-3" /> Primary
+            </span>
+          </div>
+        )}
+      </div>
+
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-medium truncate">{reel.name}</div>
+            <div className="text-xs text-muted-foreground">
+              {formatBytes(reel.size)} • {formatDate(reel.createdAt)}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {!isPrimary && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => onSetPrimary(reel.id)}
+            >
+              <Star className="h-4 w-4 mr-1" />
+              Set primary
+            </Button>
+          )}
+
+          {visibility !== "public" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onVisibility(reel.id, "public")}
+            >
+              <Globe className="h-4 w-4 mr-1" />
+              Make public
+            </Button>
+          )}
+          {visibility !== "unlisted" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onVisibility(reel.id, "unlisted")}
+            >
+              <Link2 className="h-4 w-4 mr-1" />
+              Unlisted
+            </Button>
+          )}
+          {visibility !== "private" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onVisibility(reel.id, "private")}
+            >
+              <Lock className="h-4 w-4 mr-1" />
+              Private
+            </Button>
+          )}
+
+          <Button size="sm" variant="outline" onClick={() => onCopy(reel.downloadURL)}>
+            <Link2 className="h-4 w-4 mr-1" />
+            Copy link
+          </Button>
+
+          <Button
+            size="sm"
+            variant="destructive"
+            className="ml-auto"
+            onClick={() => onDelete(reel)}
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            Delete
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ---------- Page ---------- */
 export default function ReelCV() {
   const { toast } = useToast();
 
-  // autosave on, 600ms
-  const {
-    profile,
-    setProfile,
-    save,
-    loading,
-    saving,
-    error,
-    isDirty,
-    lastSavedAt,
-  } = useUserProfile(true, 600);
+  const [activeTab, setActiveTab] = useState<"profile" | "video" | "experience" | "social">(
+    "video"
+  );
 
-  const [newSkill, setNewSkill] = useState("");
+  // ----- Profile state (με save state όπως πριν)
+  const [form, setForm] = useState<ProfileData>(initialProfile);
+  const [baseline, setBaseline] = useState<ProfileData>(initialProfile);
+  const [saving, setSaving] = useState(false);
+  const lastSavedAtRef = useRef<number | null>(null);
+  const dirty = useMemo(() => !deepEqual(form, baseline), [form, baseline]);
 
-  const skills = useMemo(() => profile?.skills ?? [], [profile?.skills]);
-
-  const addSkill = () => {
-    const s = newSkill.trim();
-    if (!s) return;
-    if (skills.includes(s)) return;
-    setProfile((p) => ({ ...(p || {}), skills: [...(p?.skills ?? []), s] }));
-    setNewSkill("");
-  };
-
-  const removeSkill = (toRemove: string) => {
-    setProfile((p) => ({
-      ...(p || {}),
-      skills: (p?.skills ?? []).filter((x) => x !== toRemove),
-    }));
-  };
-
-  const onChange =
-    (key: "fullName" | "title" | "bio" | "location") =>
+  const onChangeField =
+    (key: keyof ProfileData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const val = e.target.value;
-      setProfile((p) => ({ ...(p || {}), [key]: val }));
+      setForm((prev) => ({ ...prev, [key]: e.target.value }));
     };
 
-  const onChangeSocial =
-    (key: "linkedin" | "github" | "site") =>
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = e.target.value;
-      setProfile((p) => ({
-        ...(p || {}),
-        socials: { ...(p?.socials ?? {}), [key]: val },
-      }));
-    };
+  // φορτωσε προφίλ + primaryReelId
+  const [primaryId, setPrimaryId] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      if (!auth.currentUser) return;
+      const uid = auth.currentUser.uid;
+      const ref = doc(firestore, "users", uid, "profile", "main");
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const data = snap.data() as any;
+        const profile: ProfileData = {
+          fullName: data.fullName ?? initialProfile.fullName,
+          jobTitle: data.jobTitle ?? initialProfile.jobTitle,
+          bio: data.bio ?? initialProfile.bio,
+          location: data.location ?? initialProfile.location,
+          skills: Array.isArray(data.skills) ? data.skills : initialProfile.skills,
+          social: data.social ?? initialProfile.social,
+        };
+        setForm(profile);
+        setBaseline(profile);
+        setPrimaryId(data.primaryReelId ?? null);
+      } else {
+        // no doc yet — κρατά το default
+      }
+    })();
+  }, []);
 
-  const handleManualSave = async () => {
+  const saveProfile = async () => {
+    if (!auth.currentUser) {
+      toast({ title: "Not signed in", description: "Please sign in and try again.", variant: "destructive" });
+      return;
+    }
+    if (!dirty) return;
+    if (!form.fullName.trim() || !form.jobTitle.trim()) {
+      toast({
+        title: "Missing fields",
+        description: "Full name and job title are required.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSaving(true);
     try {
-      await save();
+      const uid = auth.currentUser.uid;
+      await setDoc(
+        doc(firestore, "users", uid, "profile", "main"),
+        {
+          fullName: form.fullName,
+          jobTitle: form.jobTitle,
+          bio: form.bio,
+          location: form.location,
+          skills: form.skills,
+          social: form.social ?? {},
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      setBaseline(form);
+      lastSavedAtRef.current = Date.now();
       toast({ title: "Saved", description: "Your changes have been saved." });
-    } catch (e: any) {
+    } catch (err: any) {
       toast({
         title: "Save failed",
+        description: err?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // autosave (όπως πριν)
+  const debouncedAutosave = useRef(
+    debounce(() => {
+      if (dirty && !saving) void saveProfile();
+    }, 800)
+  ).current;
+
+  useEffect(() => {
+    debouncedAutosave();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
+
+  // ----- Reels (library)
+  const { reels, loading, updateVisibility, setPrimary, remove } = useUserReels();
+  const setVisibility = updateVisibility;
+
+  const onCopy = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Copied", description: "Link copied to clipboard." });
+    } catch {
+      toast({
+        title: "Copy failed",
+        description: "Could not copy to clipboard.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const onSetPrimary = async (id: string) => {
+    try {
+      const reel = reels.find((r) => r.id === id);
+      if (!reel) {
+        toast({ title: "Not found", description: "Reel not found.", variant: "destructive" });
+        return;
+      }
+      await setPrimary(reel);
+      setPrimaryId(id);
+      toast({ title: "Primary set", description: "This reel is now your primary reel." });
+    } catch (e: any) {
+      toast({
+        title: "Failed to set primary",
         description: e?.message ?? "Please try again.",
         variant: "destructive",
       });
     }
   };
 
-  const savedLabel =
-    lastSavedAt && !saving
-      ? `Saved ${new Intl.DateTimeFormat(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-        }).format(lastSavedAt)}`
-      : "";
+  const onChangeVisibility = async (
+    id: string,
+    v: "private" | "unlisted" | "public"
+  ) => {
+    try {
+      await setVisibility(id, v);
+      toast({ title: "Visibility updated", description: `Reel is now ${v}.` });
+    } catch (e: any) {
+      toast({
+        title: "Failed to update",
+        description: e?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const onDelete = async (reel: ReelDoc) => {
+    if (!confirm(`Delete "${reel.name}"? This cannot be undone.`)) return;
+    try {
+      await remove(reel);
+      // το onSnapshot θα ενημερώσει αυτόματα τη λίστα
+      if (primaryId === reel.id) setPrimaryId(null);
+      toast({ title: "Deleted", description: "Reel has been removed." });
+    } catch (e: any) {
+      toast({
+        title: "Failed to delete",
+        description: e?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -116,24 +386,16 @@ export default function ReelCV() {
         </div>
 
         <div className="flex items-center gap-3">
-          {loading && (
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Loading…
-            </span>
+          {lastSavedAtRef.current && !dirty && (
+            <span className="text-xs text-muted-foreground">Saved just now</span>
           )}
-          {!loading && savedLabel && (
-            <span className="text-xs text-muted-foreground">{savedLabel}</span>
-          )}
-
           <Button variant="outline">
             <Eye className="w-4 h-4 mr-2" />
             Preview
           </Button>
-
           <Button
-            onClick={handleManualSave}
-            disabled={!isDirty || loading || saving}
+            onClick={saveProfile}
+            disabled={!dirty || saving}
             className="gradient-primary"
           >
             {saving ? (
@@ -151,14 +413,7 @@ export default function ReelCV() {
         </div>
       </div>
 
-      {/* Error banner */}
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-
-      <Tabs defaultValue="profile" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-6">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="video">Video CV</TabsTrigger>
@@ -179,21 +434,11 @@ export default function ReelCV() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="fullName">Full Name</Label>
-                  <Input
-                    id="fullName"
-                    value={profile?.fullName ?? ""}
-                    onChange={onChange("fullName")}
-                    disabled={loading}
-                  />
+                  <Input id="fullName" value={form.fullName} onChange={onChangeField("fullName")} />
                 </div>
                 <div>
                   <Label htmlFor="jobTitle">Job Title</Label>
-                  <Input
-                    id="jobTitle"
-                    value={profile?.title ?? ""}
-                    onChange={onChange("title")}
-                    disabled={loading}
-                  />
+                  <Input id="jobTitle" value={form.jobTitle} onChange={onChangeField("jobTitle")} />
                 </div>
               </div>
 
@@ -202,247 +447,109 @@ export default function ReelCV() {
                 <Textarea
                   id="bio"
                   rows={4}
-                  value={profile?.bio ?? ""}
-                  onChange={onChange("bio")}
-                  disabled={loading}
+                  value={form.bio}
+                  onChange={onChangeField("bio")}
                 />
               </div>
 
               <div>
                 <Label htmlFor="location">Location</Label>
-                <Input
-                  id="location"
-                  value={profile?.location ?? ""}
-                  onChange={onChange("location")}
-                  disabled={loading}
-                />
-              </div>
-
-              <div>
-                <Label>Skills</Label>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {skills.map((skill) => (
-                    <Badge
-                      key={skill}
-                      variant="secondary"
-                      className="flex items-center space-x-1"
-                    >
-                      <span>{skill}</span>
-                      <button
-                        onClick={() => removeSkill(skill)}
-                        className="ml-1 text-muted-foreground hover:text-destructive"
-                        disabled={loading}
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-                <div className="flex space-x-2">
-                  <Input
-                    placeholder="Add a skill"
-                    value={newSkill}
-                    onChange={(e) => setNewSkill(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addSkill()}
-                    disabled={loading}
-                  />
-                  <Button onClick={addSkill} variant="outline" disabled={loading}>
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
+                <Input id="location" value={form.location} onChange={onChangeField("location")} />
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Video CV Tab */}
+        {/* VIDEO CV => Reel Library */}
         <TabsContent value="video" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card className="shadow-soft">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Video className="w-5 h-5 text-primary" />
-                  <span>Video CV</span>
-                </CardTitle>
-                <CardDescription>
-                  Upload your main video CV (2-3 minutes recommended)
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
-                  <div className="mx-auto w-16 h-16 gradient-primary rounded-full flex items-center justify-center mb-4">
-                    <Video className="w-8 h-8 text-white" />
-                  </div>
-                  <h3 className="text-lg font-medium mb-2">Current Video CV</h3>
-                  <p className="text-muted-foreground mb-4">
-                    john-doe-cv.mp4 • 2.3 MB • 2:15 duration
-                  </p>
-                  <div className="flex justify-center space-x-3">
-                    <Button variant="outline" size="sm">
-                      <Play className="w-4 h-4 mr-2" />
-                      Preview
-                    </Button>
-                    <Button size="sm">
-                      <Upload className="w-4 h-4 mr-2" />
-                      Replace
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-soft">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Mic className="w-5 h-5 text-accent" />
-                  <span>Voice Introduction</span>
-                </CardTitle>
-                <CardDescription>
-                  Add a voice introduction to personalize your profile
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
-                  <div className="mx-auto w-16 h-16 bg-accent rounded-full flex items-center justify-center mb-4">
-                    <Mic className="w-8 h-8 text-white" />
-                  </div>
-                  <h3 className="text-lg font-medium mb-2">
-                    No Voice Introduction
-                  </h3>
-                  <p className="text-muted-foreground mb-4">
-                    Add a 30-60 second voice introduction to make your profile more personal
-                  </p>
-                  <Button variant="outline">
-                    <Mic className="w-4 h-4 mr-2" />
-                    Record Introduction
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold">Your Reels</h2>
+              <p className="text-sm text-muted-foreground">
+                Upload or record short reels and manage visibility & primary reel.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Link to="/dashboard/upload">
+                <Button variant="outline">
+                  <UploadIcon className="h-4 w-4 mr-2" />
+                  Upload new
+                </Button>
+              </Link>
+              <Link to="/dashboard/upload?tab=record">
+                <Button>
+                  <Video className="h-4 w-4 mr-2" />
+                  Record new
+                </Button>
+              </Link>
+            </div>
           </div>
 
+          {loading ? (
+            <Card className="shadow-soft">
+              <CardContent className="p-8 text-center text-muted-foreground">
+                Loading your reels…
+              </CardContent>
+            </Card>
+          ) : reels.length === 0 ? (
+            <Card className="shadow-soft">
+              <CardContent className="p-10 text-center">
+                <div className="mx-auto w-16 h-16 rounded-full gradient-primary text-white flex items-center justify-center mb-4">
+                  <Wand2 className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-medium">No reels yet</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Start by uploading or recording your first ReelCV.
+                </p>
+                <div className="mt-4 flex gap-2 justify-center">
+                  <Link to="/dashboard/upload">
+                    <Button variant="outline">
+                      <UploadIcon className="h-4 w-4 mr-2" />
+                      Upload
+                    </Button>
+                  </Link>
+                  <Link to="/dashboard/upload?tab=record">
+                    <Button>
+                      <Video className="h-4 h-4 mr-2 w-4" />
+                      Record
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+              {reels.map((reel) => (
+                <ReelCard
+                  key={reel.id}
+                  reel={reel}
+                  isPrimary={primaryId === reel.id}
+                  onSetPrimary={onSetPrimary}
+                  onVisibility={onChangeVisibility}
+                  onCopy={onCopy}
+                  onDelete={onDelete}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="experience">
           <Card className="shadow-soft">
             <CardHeader>
-              <CardTitle>Video CV Tips</CardTitle>
+              <CardTitle>Experience</CardTitle>
+              <CardDescription>Add your professional experience</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <h4 className="font-medium mb-2">📹 Recording Quality</h4>
-                  <ul className="space-y-1 text-muted-foreground">
-                    <li>• Use good lighting (face the light source)</li>
-                    <li>• Ensure clear audio quality</li>
-                    <li>• Keep the background clean and professional</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4 className="font-medium mb-2">💬 Content Guidelines</h4>
-                  <ul className="space-y-1 text-muted-foreground">
-                    <li>• Keep it between 1-3 minutes</li>
-                    <li>• Introduce yourself and your passion</li>
-                    <li>• Highlight key skills and experiences</li>
-                  </ul>
-                </div>
-              </div>
-            </CardContent>
+            <CardContent>…</CardContent>
           </Card>
         </TabsContent>
 
-        {/* Experience Tab */}
-        <TabsContent value="experience" className="space-y-6">
-          <Card className="shadow-soft">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Work Experience</CardTitle>
-                <CardDescription>
-                  Add your professional experience and achievements
-                </CardDescription>
-              </div>
-              <Button>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Experience
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-foreground">
-                      Senior Frontend Developer
-                    </h3>
-                    <p className="text-primary">TechCorp Inc.</p>
-                    <p className="text-sm text-muted-foreground">2021 - Present</p>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      Led development of modern web applications using React and TypeScript.
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="sm">
-                    <X className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-              <Separator />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Social Links Tab */}
-        <TabsContent value="social" className="space-y-6">
+        <TabsContent value="social">
           <Card className="shadow-soft">
             <CardHeader>
-              <CardTitle>Social & Professional Links</CardTitle>
-              <CardDescription>
-                Add links to your professional profiles and portfolio
-              </CardDescription>
+              <CardTitle>Social Links</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                    <Linkedin className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <Label>LinkedIn Profile</Label>
-                    <Input
-                      placeholder="https://linkedin.com/in/johndoe"
-                      value={profile?.socials?.linkedin ?? ""}
-                      onChange={onChangeSocial("linkedin")}
-                      disabled={loading}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gray-900 rounded-lg flex items-center justify-center">
-                    <Github className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <Label>GitHub Profile</Label>
-                    <Input
-                      placeholder="https://github.com/johndoe"
-                      value={profile?.socials?.github ?? ""}
-                      onChange={onChangeSocial("github")}
-                      disabled={loading}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 gradient-primary rounded-lg flex items-center justify-center">
-                    <Globe className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <Label>Portfolio Website</Label>
-                    <Input
-                      placeholder="https://johndoe.dev"
-                      value={profile?.socials?.site ?? ""}
-                      onChange={onChangeSocial("site")}
-                      disabled={loading}
-                    />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
+            <CardContent>…</CardContent>
           </Card>
         </TabsContent>
       </Tabs>
