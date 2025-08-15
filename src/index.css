@@ -13,28 +13,25 @@
     /* Card & Surface Colors */
     --card: 0 0% 100%;
     --card-foreground: 222 84% 4.9%;
-
     --popover: 0 0% 100%;
     --popover-foreground: 222 84% 4.9%;
 
-    /* Primary Brand - Professional Blue */
-    --primary: 217 91% 60%;
+    /* >>> Primary σε βιολετί (mockup) <<< */
+    --primary: 262 83% 58%;
     --primary-foreground: 0 0% 100%;
-    --primary-hover: 217 91% 55%;
+    --primary-hover: 262 83% 52%;
 
-    /* Secondary - Light Blue */
+    /* Secondary / Muted */
     --secondary: 214 100% 97%;
-    --secondary-foreground: 217 91% 60%;
-
-    /* Muted Colors */
+    --secondary-foreground: 262 83% 58%;
     --muted: 220 14% 96%;
     --muted-foreground: 220 9% 46%;
 
-    /* Accent - Purple for highlights */
-    --accent: 262 83% 58%;
+    /* Accent (μπλε για highlights)  */
+    --accent: 217 91% 60%;
     --accent-foreground: 0 0% 100%;
 
-    /* Status Colors */
+    /* Status */
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
     --success: 142 76% 36%;
@@ -45,57 +42,72 @@
     /* Border & Input */
     --border: 220 13% 91%;
     --input: 220 13% 91%;
-    --ring: 217 91% 60%;
+    --ring: 262 83% 58%;
 
     /* Design System Extensions */
     --radius: 0.75rem;
-    
-    /* Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(262 83% 58%));
-    --gradient-hero: linear-gradient(135deg, hsl(217 91% 60%), hsl(262 83% 58%), hsl(294 84% 60%));
+
+    /* Gradients (πιο «mockup-like») */
+    --gradient-primary: linear-gradient(
+      135deg,
+      hsl(262 83% 60%),
+      hsl(276 87% 64%),
+      hsl(318 89% 66%)
+    );
+    --gradient-hero: var(--gradient-primary);
     --gradient-card: linear-gradient(145deg, hsl(0 0% 100%), hsl(220 14% 98%));
-    
+
     /* Shadows */
     --shadow-soft: 0 2px 8px -2px hsl(220 9% 46% / 0.1);
     --shadow-medium: 0 4px 16px -4px hsl(220 9% 46% / 0.15);
     --shadow-strong: 0 8px 32px -8px hsl(220 9% 46% / 0.2);
-    --shadow-glow: 0 0 40px hsl(217 91% 60% / 0.15);
+    --shadow-glow: 0 0 40px hsl(262 83% 58% / 0.15);
 
-    /* Animations */
-    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-  /* Sidebar palette -> μοβ */
-  --sidebar-background: hsl(258 85% 52%);         /* βασικό μοβ background */
-  --sidebar-foreground: hsl(0 0% 100%);           /* λευκό κείμενο */
-  --sidebar-primary: hsl(258 85% 60%);            /* έντονο μοβ για CTA στο sidebar */
-  --sidebar-primary-foreground: hsl(0 0% 100%);   /* λευκό πάνω στο primary */
+    /* Sidebar palette -> μοβ */
+    --sidebar-background: hsl(258 85% 52%);
+    --sidebar-foreground: hsl(0 0% 100%);
+    --sidebar-primary: hsl(258 85% 60%);
+    --sidebar-primary-foreground: hsl(0 0% 100%);
+    --sidebar-accent: hsl(258 100% 85% / 0.16);
+    --sidebar-accent-foreground: hsl(0 0% 100%);
+    --sidebar-border: hsl(258 60% 55% / 0.25);
+    --sidebar-ring: hsl(258 85% 60%);
 
-  /* Πιο διακριτικό μοβ για hover/active */
-  --sidebar-accent: hsl(258 100% 85% / 0.16);     /* μοβ “film” 16% */
-  --sidebar-accent-foreground: hsl(0 0% 100%);    /* λευκό κείμενο πάνω του */
+    /* ====== ΝΕΑ tokens που ζήτησες ====== */
+    /* Supporting brand accents */
+    --brand-mint: 166 84% 52%;
+    --brand-mint-foreground: 0 0% 6%;
+    --brand-cyan: 199 89% 58%;
+    --brand-cyan-foreground: 0 0% 8%;
+    --brand-pink: 330 81% 60%;
+    --brand-pink-foreground: 0 0% 100%;
+    --brand-gold: 45 93% 54%;
+    --brand-gold-foreground: 0 0% 10%;
 
-  /* Διακριτικό border/ring σε μοβ τόνους */
-  --sidebar-border: hsl(258 60% 55% / 0.25);
-  --sidebar-ring: hsl(258 85% 60%);
+    /* Dark panels for cards/sections */
+    --panel: 248 24% 14%;
+    --panel-2: 248 22% 12%;
+    --panel-border: 0 0% 100% / 0.06;
+
+    /* Strong ring for focus in dark */
+    --ring-strong: 262 83% 60%;
   }
-  
+
   .dark {
     --background: 222 84% 4.9%;
     --foreground: 0 0% 98%;
 
     --card: 222 84% 4.9%;
     --card-foreground: 0 0% 98%;
-
     --popover: 222 84% 4.9%;
     --popover-foreground: 0 0% 98%;
 
-    --primary: 217 91% 60%;
+    --primary: 262 83% 58%;
     --primary-foreground: 222 84% 4.9%;
-    --primary-hover: 217 91% 65%;
+    --primary-hover: 262 83% 64%;
 
     --secondary: 217 32% 17.5%;
     --secondary-foreground: 0 0% 98%;
-
     --muted: 217 32% 17.5%;
     --muted-foreground: 215 20% 65%;
 
@@ -107,85 +119,102 @@
 
     --border: 217 32% 17.5%;
     --input: 217 32% 17.5%;
-    --ring: 217 91% 60%;
+    --ring: 262 83% 58%;
 
     /* Dark mode gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(262 83% 58%));
-    --gradient-hero: linear-gradient(135deg, hsl(217 91% 55%), hsl(262 83% 53%), hsl(294 84% 55%));
+    --gradient-primary: linear-gradient(
+      135deg,
+      hsl(262 83% 60%),
+      hsl(276 87% 64%),
+      hsl(318 89% 66%)
+    );
+    --gradient-hero: linear-gradient(
+      135deg,
+      hsl(262 83% 55%),
+      hsl(276 87% 59%),
+      hsl(318 89% 61%)
+    );
     --gradient-card: linear-gradient(145deg, hsl(222 84% 4.9%), hsl(217 32% 17.5%));
 
     /* Dark sidebar */
     --sidebar-background: 222 84% 4.9%;
     --sidebar-foreground: 215 20% 65%;
-    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary: 262 83% 58%;
     --sidebar-primary-foreground: 0 0% 98%;
     --sidebar-accent: 217 32% 17.5%;
     --sidebar-accent-foreground: 0 0% 98%;
     --sidebar-border: 217 32% 17.5%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-ring: 262 83% 58%;
+
+    /* ====== ΝΕΑ tokens και στο dark ====== */
+    --brand-mint: 166 84% 52%;
+    --brand-mint-foreground: 0 0% 6%;
+    --brand-cyan: 199 89% 58%;
+    --brand-cyan-foreground: 0 0% 8%;
+    --brand-pink: 330 81% 60%;
+    --brand-pink-foreground: 0 0% 100%;
+    --brand-gold: 45 93% 54%;
+    --brand-gold-foreground: 0 0% 10%;
+
+    --panel: 248 24% 14%;
+    --panel-2: 248 22% 12%;
+    --panel-border: 0 0% 100% / 0.06;
+
+    --ring-strong: 262 83% 60%;
   }
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
+  * { @apply border-border; }
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
   }
 
-  h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold tracking-tight;
-  }
-
-  h1 {
-    @apply text-4xl lg:text-6xl;
-  }
-
-  h2 {
-    @apply text-3xl lg:text-4xl;
-  }
-
-  h3 {
-    @apply text-2xl lg:text-3xl;
-  }
+  h1, h2, h3, h4, h5, h6 { @apply font-semibold tracking-tight; }
+  h1 { @apply text-4xl lg:text-6xl; }
+  h2 { @apply text-3xl lg:text-4xl; }
+  h3 { @apply text-2xl lg:text-3xl; }
 }
 
 @layer utilities {
-  .gradient-primary {
-    background: var(--gradient-primary);
+  .gradient-primary { background: var(--gradient-primary); }
+  .gradient-hero    { background: var(--gradient-hero); }
+  .gradient-card    { background: var(--gradient-card); }
+
+  .shadow-soft   { box-shadow: var(--shadow-soft); }
+  .shadow-medium { box-shadow: var(--shadow-medium); }
+  .shadow-strong { box-shadow: var(--shadow-strong); }
+  .shadow-glow   { box-shadow: var(--shadow-glow); }
+
+  .transition-smooth { transition: var(--transition-smooth); }
+  .transition-bounce { transition: var(--transition-bounce); }
+
+  /* >>> Φόντο portal όπως στο mockup <<< */
+  .bg-portal {
+    background:
+      radial-gradient(1100px 520px at 15% -180px, rgba(124,58,237,0.13) 0%, rgba(124,58,237,0) 60%),
+      radial-gradient(900px 520px at 100% -200px, rgba(236,72,153,0.10) 0%, rgba(236,72,153,0) 60%),
+      linear-gradient(180deg, #0B0B14 0%, #111021 40%, #121024 100%); /* darker tint για dark mockup */
   }
 
-  .gradient-hero {
-    background: var(--gradient-hero);
-  }
-
-  .gradient-card {
-    background: var(--gradient-card);
-  }
-
-  .shadow-soft {
-    box-shadow: var(--shadow-soft);
-  }
-
-  .shadow-medium {
-    box-shadow: var(--shadow-medium);
-  }
-
-  .shadow-strong {
-    box-shadow: var(--shadow-strong);
-  }
-
-  .shadow-glow {
-    box-shadow: var(--shadow-glow);
-  }
-
-  .transition-smooth {
-    transition: var(--transition-smooth);
-  }
-
-  .transition-bounce {
-    transition: var(--transition-bounce);
+  /* Λεπτή gradient bar κάτω από το header */
+  .top-gradient-bar {
+    background: linear-gradient(90deg, #7C3AED, #A855F7, #EC4899);
   }
 }
+
+/* demo styles που ήδη είχες */
+.logo { height: 6em; padding: 1.5em; will-change: filter; transition: filter 300ms; }
+.logo:hover { filter: drop-shadow(0 0 2em #646cffaa); }
+.logo.react:hover { filter: drop-shadow(0 0 2em #61dafbaa); }
+
+@keyframes logo-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo { animation: logo-spin infinite 20s linear; }
+}
+
+.card { padding: 2em; }
+.read-the-docs { color: #888; }
+html, body, #root { height: 100%; }
+body { overflow-x: hidden; } /* δεν επηρεάζει κάθετο scroll */

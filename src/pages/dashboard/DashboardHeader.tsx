@@ -1,3 +1,4 @@
+// src/pages/dashboard/DashboardHeader.tsx
 import { Link, useNavigate } from "react-router-dom";
 import { Bell, Search, User } from "lucide-react";
 import {
@@ -13,73 +14,90 @@ import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 
+// ✅ Χρησιμοποιούμε το δικό σου logo
+import logo from "@/assets/branding/logo.png";
+
 export default function DashboardHeader() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const goToProfile = () => {
-    // Το “Profile” στο dropdown να οδηγεί στο MyReelCV
-    navigate("/dashboard/reelcv");
-  };
-
-  const goToSettings = () => {
-    navigate("/dashboard/settings");
-  };
+  const goToProfile = () => navigate("/dashboard/reelcv");
+  const goToSettings = () => navigate("/dashboard/settings");
 
   const handleSignOut = async () => {
     try {
       await signOut(auth);
       toast({ title: "Signed out" });
-      navigate("/"); // αρχική σελίδα (landing)
+      navigate("/");
     } catch (err: any) {
-      toast({ title: "Sign out failed", description: err.message, variant: "destructive" });
+      toast({
+        title: "Sign out failed",
+        description: err.message,
+        variant: "destructive",
+      });
     }
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur">
-      <div className="container flex h-14 items-center justify-between">
-        {/* Left area (πχ burger για sidebar, logo κλπ) */}
+    // Πλήρως διάφανο header + blur. Όλα τα κείμενα/εικονίδια λευκά.
+    <header className="w-full border-b border-white/10 bg-transparent backdrop-blur">
+      <div className="mx-auto max-w-7xl h-14 px-4 flex items-center justify-between text-white">
+        {/* LEFT: Logo */}
         <div className="flex items-center gap-3">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary/90 text-white grid place-items-center">
-              <User className="w-5 h-5" />
-            </div>
-            <span className="font-semibold">ReelCV</span>
+          <Link to="/" aria-label="ReelCV" className="flex items-center gap-2 md:gap-3">
+   <img
+  src={logo}
+  alt="ReelCV"
+  className="h-[100px] w-auto -mt-[2px] select-none shrink-0"
+  draggable={false}
+/>
+
+
           </Link>
         </div>
 
-        {/* Right actions */}
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" aria-label="Search">
+        {/* RIGHT: actions */}
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Search"
+            className="text-white/80 hover:text-white hover:bg-white/10"
+          >
             <Search className="w-5 h-5" />
           </Button>
-          <Button variant="ghost" size="icon" aria-label="Notifications">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Notifications"
+            className="text-white/80 hover:text-white hover:bg-white/10"
+          >
             <Bell className="w-5 h-5" />
           </Button>
 
-          {/* Account dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="gap-2">
-                <div className="h-8 w-8 rounded-full bg-muted" />
+              <Button
+                variant="ghost"
+                className="gap-2 text-white/90 hover:text-white hover:bg-white/10"
+              >
+                <div className="h-8 w-8 rounded-full bg-white/10" />
                 <div className="hidden text-left md:block">
                   <div className="text-sm font-medium leading-none">John Doe</div>
-                  <div className="text-xs text-muted-foreground">john@example.com</div>
+                  <div className="text-xs text-white/60">john@example.com</div>
                 </div>
               </Button>
             </DropdownMenuTrigger>
 
-            <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuContent
+              align="end"
+              className="w-56 border-white/10 bg-[#11122a] text-white"
+            >
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={goToProfile}>
-                Profile
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={goToSettings}>
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              <DropdownMenuSeparator className="bg-white/10" />
+              <DropdownMenuItem onClick={goToProfile}>Profile</DropdownMenuItem>
+              <DropdownMenuItem onClick={goToSettings}>Settings</DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-white/10" />
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onClick={handleSignOut}

@@ -20,6 +20,7 @@ import UploadCenter from "./pages/dashboard/Upload";
 import RequireAuth from "@/components/auth/RequireAuth";
 import RoleGate from "@/components/auth/RoleGate";
 import ReelCV from "./pages/dashboard/ReelCV";
+import SupportDesk from "@/pages/dashboard/admin/SupportDesk";
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
@@ -39,6 +40,11 @@ createRoot(document.getElementById("root")!).render(
           
         }
       >
+
+<Route path="/dashboard/admin/support" element={<SupportDesk />} />
+
+
+
         <Route index element={<DashboardIndex />} />
       {/* Candidate */}
         <Route
