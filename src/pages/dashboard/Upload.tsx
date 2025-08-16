@@ -742,7 +742,7 @@ export default function UploadCenter() {
   return (
     <div className="max-w-5xl">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Upload Video</h1>
+        <h2 className="sr-only">Upload Video</h2>
       </div>
 
       <Tabs value={tab} onValueChange={requestTabChange} className="space-y-6">

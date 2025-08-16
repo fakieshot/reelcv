@@ -38,6 +38,9 @@ import { createPortal } from "react-dom";
 import { auth, firestore } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
 
+// ✅ hook για profile/socials
+import { useUserProfile } from "@/hooks/useUserProfile";
+
 /* ---------------- helpers ---------------- */
 const formatBytes = (n: number) => {
   if (!n && n !== 0) return "";
@@ -236,6 +239,19 @@ export default function ReelCV() {
   const { reels, loading, updateVisibility, setPrimary, remove } = useUserReels();
   const [primaryId, setPrimaryId] = useState<string | null>(null);
 
+  // ✅ Profile hook για αποθήκευση socials
+  const { profile, save: saveProfileDoc, saving: savingDoc } = useUserProfile();
+  const [socialsForm, setSocialsForm] = useState<any>({ ...(profile?.socials ?? {}) });
+
+  useEffect(() => {
+    setSocialsForm({ ...(profile?.socials ?? {}) });
+  }, [profile]);
+
+  const socialsDirty = useMemo(
+    () => !deepEqual(socialsForm, profile?.socials ?? {}),
+    [socialsForm, profile]
+  );
+
   // ----- Delete modal state -----
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [targetReel, setTargetReel] = useState<ReelDoc | null>(null);
@@ -430,6 +446,31 @@ export default function ReelCV() {
     setForm((p) => ({ ...p, skills: p.skills.filter((x) => x !== toRemove) }));
   };
 
+  /* ---------------- Save button behavior per tab ---------------- */
+  const isSaveDisabled =
+    activeTab === "social" ? !socialsDirty || !!savingDoc : !dirty || saving;
+
+  const saveButtonLabel =
+    activeTab === "social" ? (savingDoc ? "Saving…" : "Save Changes") : (saving ? "Saving…" : "Save Changes");
+
+  const handleSaveClick = async () => {
+    if (activeTab === "social") {
+      try {
+        await saveProfileDoc({ socials: socialsForm });
+        toast({ title: "Saved", description: "Social links updated." });
+      } catch (err: any) {
+        toast({
+          title: "Save failed",
+          description: err?.message ?? "Please try again.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+    // default: profile tab save
+    await saveProfile();
+  };
+
   /* =================================================================== */
 
   return (
@@ -448,9 +489,9 @@ export default function ReelCV() {
             <Eye className="w-4 h-4 mr-2" />
             Preview
           </Button>
-          <Button onClick={saveProfile} disabled={!dirty || saving} className="gradient-primary">
+          <Button onClick={handleSaveClick} disabled={isSaveDisabled} className="gradient-primary">
             <Save className="w-4 h-4 mr-2" />
-            {saving ? "Saving…" : "Save Changes"}
+            {saveButtonLabel}
           </Button>
         </div>
       </div>
@@ -503,9 +544,9 @@ export default function ReelCV() {
               <div>
                 <Label htmlFor="location">Location</Label>
                 <Input
-                  id="location"
-                  value={form.location}
-                  onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))}
+                    id="location"
+                    value={form.location}
+                    onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))}
                 />
               </div>
 
@@ -547,7 +588,7 @@ export default function ReelCV() {
         <TabsContent value="video" className="space-y-6">
           <div className="flex items-center justify-between">
             <div className="space-y-1">
-              <h2 className="text-xl font-semibold">Your Reels</h2>
+              <h3 className="text-lg font-semibold text-white/70">Your Reels</h3>
               <p className="text-sm text-muted-foreground">
                 Upload or record short reels and manage visibility & primary reel.
               </p>
@@ -672,33 +713,54 @@ export default function ReelCV() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-4">
+                {/* LinkedIn */}
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
                     <Linkedin className="w-5 h-5 text-white" />
                   </div>
                   <div className="flex-1">
                     <Label>LinkedIn Profile</Label>
-                    <Input placeholder="https://linkedin.com/in/johndoe" />
+                    <Input
+                      value={socialsForm.linkedin ?? ""}
+                      onChange={(e) =>
+                        setSocialsForm((s: any) => ({ ...s, linkedin: e.target.value }))
+                      }
+                      placeholder="https://linkedin.com/in/johndoe"
+                    />
                   </div>
                 </div>
 
+                {/* GitHub */}
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 bg-gray-900 rounded-lg flex items-center justify-center">
                     <Github className="w-5 h-5 text-white" />
                   </div>
                   <div className="flex-1">
                     <Label>GitHub Profile</Label>
-                    <Input placeholder="https://github.com/johndoe" />
+                    <Input
+                      value={socialsForm.github ?? ""}
+                      onChange={(e) =>
+                        setSocialsForm((s: any) => ({ ...s, github: e.target.value }))
+                      }
+                      placeholder="https://github.com/username"
+                    />
                   </div>
                 </div>
 
+                {/* Portfolio / Website */}
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 gradient-primary rounded-lg flex items-center justify-center">
                     <GlobeIcon className="w-5 h-5 text-white" />
                   </div>
                   <div className="flex-1">
                     <Label>Portfolio Website</Label>
-                    <Input placeholder="https://johndoe.dev" />
+                    <Input
+                      value={socialsForm.website ?? ""}
+                      onChange={(e) =>
+                        setSocialsForm((s: any) => ({ ...s, website: e.target.value }))
+                      }
+                      placeholder="https://johndoe.dev"
+                    />
                   </div>
                 </div>
               </div>

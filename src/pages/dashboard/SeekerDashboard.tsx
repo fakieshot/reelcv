@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +13,16 @@ import {
   Clock3,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import useAuthUser from "@/hooks/useAuthUser";
+import { useUserProfile } from "@/hooks/useUserProfile";
+import useSeekerMetrics from "@/hooks/useSeekerMetrics";
+
+// για έλεγχο ύπαρξης Video CV
+import { auth } from "@/lib/firebase";
+import { getFirestore, collection, getCountFromServer } from "firebase/firestore";
 
 export default function SeekerDashboard() {
-  // Mock data – κράτα την υπάρχουσα λογική σου αν έχεις
+  // Mock (δεν χρησιμοποιείται πια για completion)
   const stats = {
     profileViews: 156,
     applications: 12,
@@ -33,11 +41,59 @@ export default function SeekerDashboard() {
     </Card>
   );
 
+  const { user } = useAuthUser();
+  const { profile } = useUserProfile();
+
+  const displayName =
+    (profile?.fullName?.trim?.() ||
+      user?.displayName?.trim?.() ||
+      user?.email?.split("@")[0]) ?? "";
+
+  const firstName = displayName.split(" ")[0] || displayName;
+
+  const { profileViews, applicationsTotal, applicationsThisWeek, unreadMessages } =
+    useSeekerMetrics();
+
+  // ---------- δυναμικά flags για το checklist ----------
+  // Video CV: μετράμε reels ή primaryReelId
+  const [reelCount, setReelCount] = React.useState<number>(0);
+  React.useEffect(() => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    const db = getFirestore();
+    const col = collection(db, "users", uid, "reels");
+    getCountFromServer(col)
+      .then((snap) => setReelCount(snap.data().count))
+      .catch(() => setReelCount(0));
+  }, [auth.currentUser?.uid]);
+
+  const hasBasicInfo = !!(profile?.fullName && (profile as any)?.jobTitle);
+  const hasVideoCV = reelCount > 0 || !!(profile as any)?.primaryReelId;
+  const hasWorkExp =
+    Array.isArray((profile as any)?.experience) &&
+    ((profile as any).experience as any[]).length > 0;
+
+  const socials = ((profile as any)?.socials ?? {}) as {
+    linkedin?: string;
+    github?: string;
+    website?: string;
+  };
+  const hasSocialLinks = !!(socials.linkedin || socials.github || socials.website);
+
+  // ---------- Profile Strength (Basic 50, Video 35, Work 10, Socials 5) ----------
+  const profileStrength =
+    (hasBasicInfo ? 50 : 0) +
+    (hasVideoCV ? 35 : 0) +
+    (hasWorkExp ? 10 : 0) +
+    (hasSocialLinks ? 5 : 0);
+
   return (
     <div className="space-y-8 text-white">
       {/* Welcome */}
       <div>
-        <h1 className="text-3xl md:text-4xl font-bold">Welcome back!</h1>
+        <h1 className="text-3xl font-bold tracking-tight">
+          Welcome back{firstName ? `, ${firstName}` : ""}!
+        </h1>
         <p className="text-white/60 mt-2">
           Here’s what’s happening with your ReelCV profile and applications.
         </p>
@@ -51,8 +107,8 @@ export default function SeekerDashboard() {
             <Eye className="h-4 w-4 text-white/50" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-semibold">{stats.profileViews}</div>
-            <p className="text-xs text-emerald-300/80 mt-1">+12% from last month</p>
+            <div className="text-3xl font-bold">{profileViews}</div>
+            <p className="text-xs text-emerald-400"></p>
           </CardContent>
         </CardShell>
 
@@ -62,8 +118,8 @@ export default function SeekerDashboard() {
             <Briefcase className="h-4 w-4 text-white/50" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-semibold">{stats.applications}</div>
-            <p className="text-xs text-white/50 mt-1">+3 this week</p>
+            <div className="text-3xl font-bold">{applicationsTotal}</div>
+            <p className="text-xs text-emerald-400">+{applicationsThisWeek} this week</p>
           </CardContent>
         </CardShell>
 
@@ -73,8 +129,8 @@ export default function SeekerDashboard() {
             <MessageCircle className="h-4 w-4 text-white/50" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-semibold">{stats.messages}</div>
-            <p className="text-xs text-white/50 mt-1">2 unread</p>
+            <div className="text-3xl font-bold">{unreadMessages}</div>
+            <p className="text-xs text-yellow-400">{unreadMessages} unread</p>
           </CardContent>
         </CardShell>
 
@@ -84,7 +140,7 @@ export default function SeekerDashboard() {
             <TrendingUp className="h-4 w-4 text-white/50" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-semibold">85%</div>
+            <div className="text-3xl font-semibold">{profileStrength}%</div>
             <p className="text-xs text-white/50 mt-1">Complete your profile</p>
           </CardContent>
         </CardShell>
@@ -107,35 +163,62 @@ export default function SeekerDashboard() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-white/80">Profile Completion</span>
-                <span className="text-sm text-white/60">{stats.profileCompletion}%</span>
+                <span className="text-sm text-white/60">{profileStrength}%</span>
               </div>
-              <Progress className="h-2 bg-white/10" value={stats.profileCompletion} />
+              <Progress className="h-2 bg-white/10" value={profileStrength} />
             </div>
 
             <div className="space-y-3 text-sm">
+              {/* Basic Info */}
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-white/80">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" /> Basic Info
+                  {hasBasicInfo ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <Clock3 className="h-4 w-4 text-amber-300" />
+                  )}
+                  Basic Info
                 </span>
-                <span className="text-white/60">Complete</span>
+                <span className="text-white/60">{hasBasicInfo ? "Complete" : "Incomplete"}</span>
               </div>
+
+              {/* Video CV */}
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-white/80">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" /> Video CV
+                  {hasVideoCV ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <Clock3 className="h-4 w-4 text-amber-300" />
+                  )}
+                  Video CV
                 </span>
-                <span className="text-white/60">Complete</span>
+                <span className="text-white/60">{hasVideoCV ? "Complete" : "Incomplete"}</span>
               </div>
+
+              {/* Work Experience */}
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-white/80">
-                  <Clock3 className="h-4 w-4 text-amber-300" /> Work Experience
+                  {hasWorkExp ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <Clock3 className="h-4 w-4 text-amber-300" />
+                  )}
+                  Work Experience
                 </span>
-                <span className="text-white/60">Incomplete</span>
+                <span className="text-white/60">{hasWorkExp ? "Complete" : "Incomplete"}</span>
               </div>
+
+              {/* Social Links */}
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-white/80">
-                  <Clock3 className="h-4 w-4 text-amber-300" /> Social Links
+                  {hasSocialLinks ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <Clock3 className="h-4 w-4 text-amber-300" />
+                  )}
+                  Social Links
                 </span>
-                <span className="text-white/60">Missing</span>
+                <span className="text-white/60">{hasSocialLinks ? "Complete" : "Missing"}</span>
               </div>
             </div>
 

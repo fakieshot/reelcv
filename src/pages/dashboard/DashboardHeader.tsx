@@ -1,4 +1,9 @@
 // src/pages/dashboard/DashboardHeader.tsx
+import useAuthUser from "@/hooks/useAuthUser";
+// ⬇️ βάλε αγκύλες — είναι named export
+import { useUserProfile } from "@/hooks/useUserProfile";
+
+
 import { Link, useNavigate } from "react-router-dom";
 import { Bell, Search, User } from "lucide-react";
 import {
@@ -38,13 +43,35 @@ export default function DashboardHeader() {
     }
   };
 
+const { user } = useAuthUser();
+const { profile } = useUserProfile();
+
+const displayName =
+  (profile?.fullName?.trim?.() ||
+   user?.displayName?.trim?.() ||
+   user?.email?.split("@")[0]) ?? "User";
+
+const email = user?.email ?? "";
+
+const initials = displayName
+  .split(" ")
+  .filter(Boolean)
+  .map((s) => s[0])
+  .slice(0, 2)
+  .join("")
+  .toUpperCase();
+
+
+
+
+  
   return (
     // Πλήρως διάφανο header + blur. Όλα τα κείμενα/εικονίδια λευκά.
     <header className="w-full border-b border-white/10 bg-transparent backdrop-blur">
       <div className="mx-auto max-w-7xl h-14 px-4 flex items-center justify-between text-white">
         {/* LEFT: Logo */}
         <div className="flex items-center gap-3">
-          <Link to="/" aria-label="ReelCV" className="flex items-center gap-2 md:gap-3">
+          <Link to="/dashboard" aria-label="ReelCV" className="flex items-center gap-2 md:gap-3">
    <img
   src={logo}
   alt="ReelCV"
@@ -81,11 +108,19 @@ export default function DashboardHeader() {
                 variant="ghost"
                 className="gap-2 text-white/90 hover:text-white hover:bg-white/10"
               >
-                <div className="h-8 w-8 rounded-full bg-white/10" />
-                <div className="hidden text-left md:block">
-                  <div className="text-sm font-medium leading-none">John Doe</div>
-                  <div className="text-xs text-white/60">john@example.com</div>
-                </div>
+               <div className="flex items-center gap-3">
+  {/* Avatar */}
+  <div className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-xs font-semibold">
+    {initials}
+  </div>
+
+  {/* Name + email */}
+  <div className="leading-tight text-right">
+    <div className="font-semibold">{displayName}</div>
+    <div className="text-xs text-white/70">{email}</div>
+  </div>
+</div>
+
               </Button>
             </DropdownMenuTrigger>
 
