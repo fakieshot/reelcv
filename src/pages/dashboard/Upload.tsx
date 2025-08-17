@@ -13,11 +13,30 @@ import {
   SelectItem,
   SelectValue,
 } from "@/components/ui/select";
-import { UploadCloud, Video, Mic, Redo2, Download, Play } from "lucide-react";
+import { UploadCloud, Video, Mic, Redo2, Download, Play, Loader2, Save, Eye } from "lucide-react";
+
+
 
 import { useUploadReel } from "@/hooks/useUploadReel";
 import { useToast } from "@/hooks/use-toast";
 import { auth } from "@/lib/firebase";
+
+/* ⬇️ ΝΕΑ imports για τον editor */
+import { SelfieSegmentation } from "@mediapipe/selfie_segmentation";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  getFirestore,
+  collection,
+  query as fsQuery,
+  where,
+  limit as fsLimit,
+  getDocs,
+  doc,
+  setDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 /* ────────────────────────────────────────────────────────────── */
 /* Utilities */
@@ -33,6 +52,352 @@ const secondsToMMSS = (s: number) =>
     2,
     "0"
   )}`;
+
+/* ────────────────────────────────────────────────────────────── */
+/* Background Editor (modal + inline preview) — ΜΟΝΟ ΠΡΟΣΘΗΚΕΣ */
+/* ------------------------------------------------------------- */
+
+
+
+
+
+
+
+type BackgroundStyle = "original" | "blur" | "black";
+
+function BackgroundEditorModal({
+  open,
+  src,
+  onClose,
+}: {
+  open: boolean;
+  src: string | null;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  if (!open || !src || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[110] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-[96%] max-w-3xl rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <Card className="bg-transparent border-0 shadow-none">
+          <CardHeader className="flex items-center justify-between p-0 pb-4">
+            <CardTitle className="text-white/90">Preview & Background</CardTitle>
+           <Button
+  onClick={onClose}
+  className="bg-white/10 hover:bg-white/15 text-white border border-white/15"
+>
+  Close
+</Button>
+
+          </CardHeader>
+          <CardContent className="p-0">
+            <BackgroundStylePreviewInline
+              src={src}
+              defaultStyle="blur"
+              onSave={async (blob, { style }) => {
+                try {
+                  const uid = auth.currentUser!.uid;
+                  const db = getFirestore();
+
+                  // Βρες το reel doc από το raw downloadURL
+                  const reelsCol = collection(db, "users", uid, "reels");
+                  const q = fsQuery(reelsCol, where("downloadURL", "==", src), fsLimit(1));
+                  const snap = await getDocs(q);
+                  const foundId = !snap.empty ? snap.docs[0].id : null;
+
+                  // Αποθήκευσε processed video
+                  const storage = getStorage();
+                  const fileKey = foundId ?? `processed_${Date.now()}`;
+                  const outRef = ref(storage, `users/${uid}/reels/processed/${fileKey}.webm`);
+                  await uploadBytes(outRef, blob);
+                  const processedURL = await getDownloadURL(outRef);
+
+                  // Ενημέρωση doc (αν υπάρχει)
+                  if (foundId) {
+                    await setDoc(
+  doc(db, "users", uid, "reels", foundId),
+  {
+    backgroundStyle: style,
+    rawDownloadURL: src,                 // κρατάμε το αρχικό
+    downloadURL: processedURL,           // ⬅️ αντικαθιστούμε το ενεργό URL
+    processedDownloadURL: processedURL,  // (προαιρετικό duplicate)
+    processedAt: serverTimestamp(),
+    status: "ready",
+  },
+  { merge: true }
+);
+
+                  }
+
+                  toast({ title: "Saved", description: "Background style applied." });
+                  onClose();
+                } catch (e: any) {
+                  console.error(e);
+                  toast({
+                    title: "Failed",
+                    description: e?.message ?? "Please try again.",
+                    variant: "destructive",
+                  });
+                }
+              }}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function BackgroundStylePreviewInline({
+  src,
+  onSave,
+  defaultStyle = "blur",
+  aspect = 16 / 9,
+}: {
+  src: string;
+  onSave: (blob: Blob, opts: { style: "original" | "blur" | "black" }) => Promise<void> | void;
+  defaultStyle?: "original" | "blur" | "black";
+  aspect?: number;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [ready, setReady] = useState(false);
+  const [style, setStyle] = useState<"original" | "blur" | "black">(defaultStyle);
+  const [processing, setProcessing] = useState(false);
+
+  // Offscreen canvases: για καρέ, άνθρωπο, φόντο
+  const frameCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const personCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const segRef = useRef<SelfieSegmentation | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const busyRef = useRef(false);
+
+  // Init video
+  useEffect(() => {
+    const v = videoRef.current!;
+    const oncanplay = () => {
+      setReady(true);
+      v.play().catch(() => {});
+    };
+    v.addEventListener("canplay", oncanplay);
+    v.src = src;
+    v.crossOrigin = "anonymous";
+    v.playsInline = true;
+    v.muted = true;
+    v.load();
+    return () => {
+      v.pause();
+      v.removeEventListener("canplay", oncanplay);
+    };
+  }, [src]);
+
+  // Init MediaPipe
+  useEffect(() => {
+    const seg = new SelfieSegmentation({
+      locateFile: (f) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${f}`,
+    });
+    seg.setOptions({ modelSelection: 1 });
+    segRef.current = seg;
+    return () => {
+      // @ts-ignore
+      seg.close?.();
+      segRef.current = null;
+    };
+  }, []);
+
+  // Render loop
+  useEffect(() => {
+    const v = videoRef.current;
+    const c = canvasRef.current;
+    const seg = segRef.current;
+    if (!v || !c || !seg) return;
+
+    const ctx = c.getContext("2d")!;
+
+    const frameCanvas =
+      frameCanvasRef.current ?? (frameCanvasRef.current = document.createElement("canvas"));
+    const frameCtx = frameCanvas.getContext("2d")!;
+
+    const personCanvas =
+      personCanvasRef.current ?? (personCanvasRef.current = document.createElement("canvas"));
+    const personCtx = personCanvas.getContext("2d")!;
+
+    const bgCanvas =
+      bgCanvasRef.current ?? (bgCanvasRef.current = document.createElement("canvas"));
+    const bgCtx = bgCanvas.getContext("2d")!;
+
+    const fit = () => {
+      const w = v.videoWidth || 1280;
+      const h = v.videoHeight || 720;
+      const H = 720;
+      const W = Math.round(H * aspect);
+      c.width = W; c.height = H;
+      frameCanvas.width = W; frameCanvas.height = H;
+      personCanvas.width = W; personCanvas.height = H;
+      bgCanvas.width = W; bgCanvas.height = H;
+
+      const s = Math.min(W / w, H / h);
+      const dw = Math.round(w * s);
+      const dh = Math.round(h * s);
+      const dx = Math.floor((W - dw) / 2);
+      const dy = Math.floor((H - dh) / 2);
+      return { W, H, dw, dh, dx, dy };
+    };
+
+    const dims = fit();
+
+    seg.onResults((res: any) => {
+      const mask: HTMLCanvasElement = res.segmentationMask; // λευκό άνθρωπος, μαύρο background
+
+      // 1) Ζωγράφισε το τρέχον καρέ σε frameCanvas
+      frameCtx.clearRect(0, 0, dims.W, dims.H);
+      frameCtx.drawImage(v, dims.dx, dims.dy, dims.dw, dims.dh);
+
+      if (style === "original") {
+        ctx.clearRect(0, 0, dims.W, dims.H);
+        ctx.drawImage(frameCanvas, 0, 0, dims.W, dims.H);
+        busyRef.current = false;
+        return;
+      }
+
+      // 2) personCanvas = original * mask (ΜΟΝΟ άνθρωπος)
+      personCtx.clearRect(0, 0, dims.W, dims.H);
+      personCtx.drawImage(frameCanvas, 0, 0, dims.W, dims.H);
+      personCtx.globalCompositeOperation = "destination-in";
+      personCtx.drawImage(mask, 0, 0, dims.W, dims.H);
+      personCtx.globalCompositeOperation = "source-over";
+
+      if (style === "black") {
+        // Μαύρο φόντο + καθαρός άνθρωπος
+        ctx.clearRect(0, 0, dims.W, dims.H);
+        ctx.fillStyle = "black";
+        ctx.fillRect(0, 0, dims.W, dims.H);
+        ctx.drawImage(personCanvas, 0, 0, dims.W, dims.H);
+        busyRef.current = false;
+        return;
+      }
+
+      // 3) bgCanvas = (original blurred) * (1 - mask)  => ΜΟΝΟ φόντο, θολό
+      bgCtx.clearRect(0, 0, dims.W, dims.H);
+      bgCtx.filter = "blur(16px)";
+      bgCtx.drawImage(frameCanvas, 0, 0, dims.W, dims.H);
+      bgCtx.filter = "none";
+      // αφαιρούμε τον άνθρωπο από το blurred layer
+      bgCtx.globalCompositeOperation = "destination-out";
+      bgCtx.drawImage(mask, 0, 0, dims.W, dims.H);
+      bgCtx.globalCompositeOperation = "source-over";
+
+      // 4) Τελική σύνθεση
+      ctx.clearRect(0, 0, dims.W, dims.H);
+      ctx.drawImage(bgCanvas, 0, 0, dims.W, dims.H);      // θολό background
+      ctx.drawImage(personCanvas, 0, 0, dims.W, dims.H);  // καθαρός άνθρωπος
+      busyRef.current = false;
+    });
+
+    let mounted = true;
+    const tick = async () => {
+      if (!mounted) return;
+      if (!ready || busyRef.current) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      try {
+        busyRef.current = true;
+        await seg.send({ image: v });
+      } catch (e) {
+        console.warn("SelfieSegmentation send error:", e);
+        busyRef.current = false;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    tick();
+    return () => {
+      mounted = false;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [ready, aspect, style]);
+
+  // Export → γράφουμε το rendered canvas + περνάμε audio
+  const exportProcessed = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    setProcessing(true);
+
+    const v = videoRef.current;
+    v.muted = false;
+
+    const outStream = canvasRef.current.captureStream(30);
+    const srcStream: MediaStream =
+      (v as any).captureStream?.() || (v as any).mozCaptureStream?.() || new MediaStream();
+    srcStream.getAudioTracks().forEach((t) => outStream.addTrack(t));
+
+    const rec = new MediaRecorder(outStream, {
+      mimeType: "video/webm;codecs=vp9",
+      videoBitsPerSecond: 4_000_000,
+    });
+    const chunks: BlobPart[] = [];
+    rec.ondataavailable = (e) => e.data && chunks.push(e.data);
+    const done = new Promise<Blob>((resolve) => (rec.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }))));
+
+    v.currentTime = 0;
+    await v.play().catch(() => {});
+    rec.start(250);
+    const onEnded = () => {
+      rec.stop();
+      v.removeEventListener("ended", onEnded);
+    };
+    v.addEventListener("ended", onEnded);
+
+    const blob = await done;
+    await onSave(blob, { style });
+    setProcessing(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="relative w-full overflow-hidden rounded-xl bg-black" style={{ aspectRatio: `${aspect}` }}>
+        <video ref={videoRef} className="hidden" playsInline controls={false} />
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+      </div>
+
+      <div className="mt-2">
+        <RadioGroup value={style} onValueChange={(v: any) => setStyle(v)} className="grid grid-cols-3 gap-3">
+          <div className="flex items-center space-x-2 rounded-lg border border-white/10 p-3">
+            <RadioGroupItem value="original" id="bg-original" />
+            <Label htmlFor="bg-original" className="text-white/80">Original</Label>
+          </div>
+          <div className="flex items-center space-x-2 rounded-lg border border-white/10 p-3">
+            <RadioGroupItem value="blur" id="bg-blur" />
+            <Label htmlFor="bg-blur" className="text-white/80">Blurred</Label>
+          </div>
+          <div className="flex items-center space-x-2 rounded-lg border border-white/10 p-3">
+            <RadioGroupItem value="black" id="bg-black" />
+            <Label htmlFor="bg-black" className="text-white/80">Solid Black</Label>
+          </div>
+        </RadioGroup>
+      </div>
+
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" className="text-white border-white/15">
+          <Eye className="h-4 w-4 mr-2" />
+          Rewatch
+        </Button>
+        <Button onClick={exportProcessed} disabled={processing}>
+          {processing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+          {processing ? "Processing…" : "Save"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+
 
 /* ────────────────────────────────────────────────────────────── */
 /* Fancy centered confirm modal (custom, not browser default) */
@@ -118,14 +483,16 @@ function ConfirmLeaveModal({
 /* ────────────────────────────────────────────────────────────── */
 /* Upload Panel (όπως ήταν, με "Open file" διατηρημένο) */
 
-function UploadPanel() {
+function UploadPanel({ onUploadDone }: { onUploadDone: (rawUrl: string) => void }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const { toast } = useToast();
 
   const { state, progress, error, downloadURL, upload, cancel, reset } =
     useUploadReel(MAX_SIZE_MB, {
-      onDone: () => {
+      onDone: (info?: any) => {
+        const url = info?.downloadURL ?? downloadURL;
+        if (url) onUploadDone(url);
         toast({
           title: "Upload complete",
           description: "Your video has been uploaded successfully.",
@@ -233,6 +600,16 @@ function UploadPanel() {
                   Open file
                 </a>
               )}
+{state === "success" && downloadURL && (
+  <div className="mt-4 flex justify-end">
+    <Button onClick={() => onUploadDone(downloadURL)}>
+      Edit Background
+    </Button>
+  </div>
+)}
+
+
+
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
@@ -253,9 +630,10 @@ function UploadPanel() {
 type RecordingPanelProps = {
   onDraftReady: (url: string) => void;
   onDraftCleared: () => void;
+  onUploadDone: (rawUrl: string) => void; // ⬅️ ΝΕΟ prop
 };
 
-function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
+function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: RecordingPanelProps) {
   const { toast } = useToast();
   const {
     state: uploadState,
@@ -263,8 +641,11 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
     upload,
     cancel: cancelUpload,   // <-- to cancel upload
     reset: resetUpload,
+    downloadURL: recordedDownloadURL,
   } = useUploadReel(MAX_SIZE_MB, {
-    onDone: () => {
+    onDone: (info?: any) => {
+      const url = info?.downloadURL ?? recordedDownloadURL;
+      if (url) onUploadDone(url);
       toast({
         title: "Submitted",
         description: "Your recording has been uploaded.",
@@ -676,6 +1057,15 @@ function RecordingPanel({ onDraftReady, onDraftCleared }: RecordingPanelProps) {
           </div>
         </div>
 
+        {uploadState === "success" && (
+  <div className="mt-3 flex justify-end">
+    <Button onClick={() => recordedDownloadURL && onUploadDone(recordedDownloadURL)}>
+      Edit Background
+    </Button>
+  </div>
+)}
+
+
         <p className="text-sm text-muted-foreground">
           Tip: Aim for 30 seconds. Say your name, what role you’re applying for, and
           2–3 quick reasons why you’re a great fit.
@@ -698,6 +1088,10 @@ export default function UploadCenter() {
   // modal controls
   const [modalOpen, setModalOpen] = useState(false);
   const nextTabRef = useRef<"upload" | "record">("upload");
+
+  // ⬇️ ΝΕΟ: Background editor state (όλα μέσα στο Upload)
+  const [bgOpen, setBgOpen] = useState(false);
+  const [bgSrc, setBgSrc] = useState<string | null>(null);
 
   // Only warn when LEAVING the "record" tab with a draft.
   const requestTabChange = (value: string) => {
@@ -739,6 +1133,13 @@ export default function UploadCenter() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [hasDraft]);
 
+  // ⬇️ callback για να ανοίξει ο editor μετά το upload (και των δύο panels)
+  const handleUploadDone = (rawUrl: string) => {
+    if (!rawUrl) return;
+    setBgSrc(rawUrl);
+    setBgOpen(true);
+  };
+
   return (
     <div className="max-w-5xl">
       <div className="mb-4 flex items-center justify-between">
@@ -752,12 +1153,13 @@ export default function UploadCenter() {
         </TabsList>
 
         <TabsContent value="upload">
-          <UploadPanel />
+          <UploadPanel onUploadDone={handleUploadDone} />
         </TabsContent>
 
         {/* forceMount: keep Record state alive */}
         <TabsContent value="record" forceMount>
           <RecordingPanel
+            onUploadDone={handleUploadDone}
             onDraftReady={(url) => {
               setHasDraft(true);
               setDraftUrl(url);
@@ -782,6 +1184,9 @@ export default function UploadCenter() {
         onConfirm={confirmLeave}
         onCancel={cancelLeave}
       />
+
+      {/* ⬇️ Background editor modal */}
+      <BackgroundEditorModal open={bgOpen} src={bgSrc} onClose={() => setBgOpen(false)} />
     </div>
   );
 }
