@@ -13,10 +13,9 @@ import {
   SelectItem,
   SelectValue,
 } from "@/components/ui/select";
-import { UploadCloud, Video, Mic, Redo2, Download, Play, Loader2, Save, Eye } from "lucide-react";
+import { UploadCloud, Video, Mic, Redo2, Download, Play, Loader2, Save } from "lucide-react";
 
 import { useNavigate } from "react-router-dom";
-
 
 import { useUploadReel } from "@/hooks/useUploadReel";
 import { useToast } from "@/hooks/use-toast";
@@ -37,7 +36,13 @@ import {
   setDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage";
 
 /* ────────────────────────────────────────────────────────────── */
 /* Utilities */
@@ -54,15 +59,24 @@ const secondsToMMSS = (s: number) =>
     "0"
   )}`;
 
+/* Helper: παίρνουμε το storage path από ένα Firebase downloadURL */
+function storagePathFromDownloadURL(url: string): string | null {
+  try {
+    const u = new URL(url);
+    // .../o/<ENCODED_PATH>?alt=media&token=...
+    const idx = u.pathname.indexOf("/o/");
+    if (idx === -1) return null;
+    const enc = u.pathname.slice(idx + 3); // μετά το "/o/"
+    const encodedPath = enc.split("?")[0];
+    return decodeURIComponent(encodedPath);
+  } catch {
+    return null;
+  }
+}
+
 /* ────────────────────────────────────────────────────────────── */
-/* Background Editor (modal + inline preview) — ΜΟΝΟ ΠΡΟΣΘΗΚΕΣ */
+/* Background Editor (modal + inline preview) */
 /* ------------------------------------------------------------- */
-
-
-
-
-
-
 
 type BackgroundStyle = "original" | "blur" | "black";
 
@@ -76,10 +90,13 @@ function BackgroundEditorModal({
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const navigate = useNavigate();  // ← εδώ
+  const navigate = useNavigate();
   const [loadingDoc, setLoadingDoc] = useState(true);
   const [reelId, setReelId] = useState<string | null>(null);
   const [processingSrc, setProcessingSrc] = useState<string | null>(null);
+
+  // Close confirm modal state
+  const [closeOpen, setCloseOpen] = useState(false);
 
   useEffect(() => {
     let abort = false;
@@ -95,10 +112,14 @@ function BackgroundEditorModal({
         const reelsCol = collection(db, "users", uid, "reels");
 
         // 1) ψάξε με downloadURL == src
-        let snap = await getDocs(fsQuery(reelsCol, where("downloadURL", "==", src), fsLimit(1)));
+        let snap = await getDocs(
+          fsQuery(reelsCol, where("downloadURL", "==", src), fsLimit(1))
+        );
         // 2) αλλιώς με rawDownloadURL == src
         if (snap.empty) {
-          snap = await getDocs(fsQuery(reelsCol, where("rawDownloadURL", "==", src), fsLimit(1)));
+          snap = await getDocs(
+            fsQuery(reelsCol, where("rawDownloadURL", "==", src), fsLimit(1))
+          );
         }
 
         if (!abort && !snap.empty) {
@@ -132,14 +153,14 @@ function BackgroundEditorModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCloseOpen(true)} />
       <div className="relative w-[96%] max-w-3xl rounded-2xl border border-white/10 bg-white/[0.03] p-4">
         <Card className="bg-transparent border-0 shadow-none">
           <CardHeader className="flex items-center justify-between p-0 pb-4">
             <CardTitle className="text-white/90">Preview & Background</CardTitle>
-           <Button onClick={onClose} className="gradient-primary text-white">
-  Close
-</Button>
+            <Button onClick={() => setCloseOpen(true)} className="gradient-primary text-white">
+              Close
+            </Button>
           </CardHeader>
           <CardContent className="p-0">
             {loadingDoc || !processingSrc ? (
@@ -157,9 +178,11 @@ function BackgroundEditorModal({
                     const storage = getStorage();
 
                     // Αν ξέρουμε reelId, γράφουμε/αντικαθιστούμε ΣΤΟ ΙΔΙΟ path
-
                     const fileKey = reelId ?? `processed_${Date.now()}`;
-                    const outRef = ref(storage, `users/${uid}/reels/processed/${fileKey}.webm`);
+                    const outRef = ref(
+                      storage,
+                      `users/${uid}/reels/processed/${fileKey}.webm`
+                    );
                     await uploadBytes(outRef, blob, { contentType: "video/webm" });
                     const processedURL = await getDownloadURL(outRef);
 
@@ -169,10 +192,8 @@ function BackgroundEditorModal({
                         doc(db, "users", uid, "reels", reelId),
                         {
                           backgroundStyle: style,
-                          // κρατάμε το αρχικό (αν δεν υπάρχει ήδη)
-                          rawDownloadURL: processingSrc,
-                          // κάνουμε το processed ενεργό
-                          downloadURL: processedURL,
+                          rawDownloadURL: processingSrc, // κρατάμε το αρχικό
+                          downloadURL: processedURL, // κάνουμε το processed ενεργό
                           processedDownloadURL: processedURL,
                           processedAt: serverTimestamp(),
                           status: "ready",
@@ -197,17 +218,35 @@ function BackgroundEditorModal({
           </CardContent>
         </Card>
       </div>
+
+      {/* Close confirm modal */}
+      <ConfirmCloseModal
+        open={closeOpen}
+        onCancel={() => setCloseOpen(false)}
+        onConfirm={async () => {
+          try {
+            // Διαγράφουμε το raw upload (αν είναι Firebase URL)
+            if (src) {
+              const path = storagePathFromDownloadURL(src);
+              if (path) {
+                const storage = getStorage();
+                await deleteObject(ref(storage, path)).catch(() => {});
+              }
+            }
+            setCloseOpen(false);
+            onClose();
+          } catch {
+            setCloseOpen(false);
+            onClose();
+          }
+        }}
+      />
     </div>,
     document.body
   );
-
-  
 }
 
-
-
-
-
+/* Inline preview + render/record */
 function BackgroundStylePreviewInline({
   src,
   onSave,
@@ -226,7 +265,7 @@ function BackgroundStylePreviewInline({
   const [processing, setProcessing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // Offscreen canvases: για καρέ, άνθρωπο, φόντο
+  // Offscreen canvases
   const frameCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const personCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -235,19 +274,16 @@ function BackgroundStylePreviewInline({
   const rafRef = useRef<number | null>(null);
   const busyRef = useRef(false);
 
-
-// Όταν αλλάζει στυλ, γύρνα την αναπαραγωγή από την αρχή και παίξε
-useEffect(() => {
-  const v = videoRef.current;
-  if (!v || !ready) return;
-  try {
-    v.currentTime = 0;
-    const p = v.play();
-    if (p && typeof (p as any).then === "function") (p as any).then(() => {}).catch(() => {});
-  } catch {}
-}, [style, ready]);
-
-
+  // Όταν αλλάζει στυλ, ξεκίνα playback απ’ την αρχή
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !ready) return;
+    try {
+      v.currentTime = 0;
+      const p = v.play();
+      if (p && typeof (p as any).then === "function") (p as any).then(() => {}).catch(() => {});
+    } catch {}
+  }, [style, ready]);
 
   // Init video
   useEffect(() => {
@@ -325,61 +361,60 @@ useEffect(() => {
     const dims = fit();
 
     seg.onResults((res: any) => {
-  const hardMask: HTMLCanvasElement = res.segmentationMask;
+      const hardMask: HTMLCanvasElement = res.segmentationMask;
 
-  // Δημιουργούμε soft mask (feather) για λιγότερο τρεμόπαιγμα στα άκρα
-  const softMaskCanvas = document.createElement("canvas");
-  softMaskCanvas.width = c.width;
-  softMaskCanvas.height = c.height;
-  const softMaskCtx = softMaskCanvas.getContext("2d")!;
-  softMaskCtx.clearRect(0, 0, c.width, c.height);
-  softMaskCtx.filter = "blur(6px)";          // ← ρύθμισε 4–10 ανάλογα με την ένταση
-  softMaskCtx.drawImage(hardMask, 0, 0, c.width, c.height);
-  softMaskCtx.filter = "none";
+      // soft mask (feather)
+      const softMaskCanvas = document.createElement("canvas");
+      softMaskCanvas.width = c.width;
+      softMaskCanvas.height = c.height;
+      const softMaskCtx = softMaskCanvas.getContext("2d")!;
+      softMaskCtx.clearRect(0, 0, c.width, c.height);
+      softMaskCtx.filter = "blur(6px)";
+      softMaskCtx.drawImage(hardMask, 0, 0, c.width, c.height);
+      softMaskCtx.filter = "none";
 
-  // 1) καρέ
-  frameCtx.clearRect(0, 0, dims.W, dims.H);
-  frameCtx.drawImage(v, 0, 0, dims.W, dims.H);
+      // 1) frame
+      frameCtx.clearRect(0, 0, dims.W, dims.H);
+      frameCtx.drawImage(v, 0, 0, dims.W, dims.H);
 
-  if (style === "original") {
-    ctx.clearRect(0, 0, dims.W, dims.H);
-    ctx.drawImage(frameCanvas, 0, 0, dims.W, dims.H);
-    busyRef.current = false;
-    return;
-  }
+      if (style === "original") {
+        ctx.clearRect(0, 0, dims.W, dims.H);
+        ctx.drawImage(frameCanvas, 0, 0, dims.W, dims.H);
+        busyRef.current = false;
+        return;
+      }
 
-  // 2) personCanvas = original * softMask
-  personCtx.clearRect(0, 0, dims.W, dims.H);
-  personCtx.drawImage(frameCanvas, 0, 0, dims.W, dims.H);
-  personCtx.globalCompositeOperation = "destination-in";
-  personCtx.drawImage(softMaskCanvas, 0, 0, dims.W, dims.H);
-  personCtx.globalCompositeOperation = "source-over";
+      // 2) personCanvas = original * softMask
+      personCtx.clearRect(0, 0, dims.W, dims.H);
+      personCtx.drawImage(frameCanvas, 0, 0, dims.W, dims.H);
+      personCtx.globalCompositeOperation = "destination-in";
+      personCtx.drawImage(softMaskCanvas, 0, 0, dims.W, dims.H);
+      personCtx.globalCompositeOperation = "source-over";
 
-  if (style === "black") {
-    ctx.clearRect(0, 0, dims.W, dims.H);
-    ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, dims.W, dims.H);
-    ctx.drawImage(personCanvas, 0, 0, dims.W, dims.H);
-    busyRef.current = false;
-    return;
-  }
+      if (style === "black") {
+        ctx.clearRect(0, 0, dims.W, dims.H);
+        ctx.fillStyle = "black";
+        ctx.fillRect(0, 0, dims.W, dims.H);
+        ctx.drawImage(personCanvas, 0, 0, dims.W, dims.H);
+        busyRef.current = false;
+        return;
+      }
 
-  // 3) bgCanvas = (blurred original) * (1 - softMask)
-  bgCtx.clearRect(0, 0, dims.W, dims.H);
-  bgCtx.filter = "blur(16px)";
-  bgCtx.drawImage(frameCanvas, 0, 0, dims.W, dims.H);
-  bgCtx.filter = "none";
-  bgCtx.globalCompositeOperation = "destination-out";
-  bgCtx.drawImage(softMaskCanvas, 0, 0, dims.W, dims.H);
-  bgCtx.globalCompositeOperation = "source-over";
+      // 3) bgCanvas = (blurred original) * (1 - softMask)
+      bgCtx.clearRect(0, 0, dims.W, dims.H);
+      bgCtx.filter = "blur(16px)";
+      bgCtx.drawImage(frameCanvas, 0, 0, dims.W, dims.H);
+      bgCtx.filter = "none";
+      bgCtx.globalCompositeOperation = "destination-out";
+      bgCtx.drawImage(softMaskCanvas, 0, 0, dims.W, dims.H);
+      bgCtx.globalCompositeOperation = "source-over";
 
-  // 4) σύνθεση
-  ctx.clearRect(0, 0, dims.W, dims.H);
-  ctx.drawImage(bgCanvas, 0, 0, dims.W, dims.H);
-  ctx.drawImage(personCanvas, 0, 0, dims.W, dims.H);
-  busyRef.current = false;
-});
-
+      // 4) compose
+      ctx.clearRect(0, 0, dims.W, dims.H);
+      ctx.drawImage(bgCanvas, 0, 0, dims.W, dims.H);
+      ctx.drawImage(personCanvas, 0, 0, dims.W, dims.H);
+      busyRef.current = false;
+    });
 
     let mounted = true;
     const tick = async () => {
@@ -405,13 +440,10 @@ useEffect(() => {
     };
   }, [ready, aspect, style]);
 
-  // Export → γράφουμε το rendered canvas + περνάμε audio
+  // Export → canvas + audio
   const exportProcessed = async () => {
     if (!videoRef.current || !canvasRef.current) return;
     setProcessing(true);
-
-
-
 
     const v = videoRef.current;
     v.muted = false;
@@ -427,7 +459,8 @@ useEffect(() => {
     });
     const chunks: BlobPart[] = [];
     rec.ondataavailable = (e) => e.data && chunks.push(e.data);
-    const done = new Promise<Blob>((resolve) => (rec.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }))));
+    const done = new Promise<Blob>((resolve) => (rec.onstop = () =>
+      resolve(new Blob(chunks, { type: "video/webm" }))));
 
     v.currentTime = 0;
     await v.play().catch(() => {});
@@ -441,6 +474,15 @@ useEffect(() => {
     const blob = await done;
     await onSave(blob, { style });
     setProcessing(false);
+  };
+
+  const handleSaveClick = () => {
+    if (style === "original") {
+      // Χωρίς confirm για original
+      exportProcessed();
+    } else {
+      setConfirmOpen(true);
+    }
   };
 
   return (
@@ -467,28 +509,28 @@ useEffect(() => {
         </RadioGroup>
       </div>
 
- <div className="flex items-center justify-end">
-  <Button onClick={() => setConfirmOpen(true)} disabled={processing}>
-    {processing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-    {processing ? "Processing…" : "Save"}
-  </Button>
-</div>
+      <div className="flex items-center justify-end">
+        <Button onClick={handleSaveClick} disabled={processing}>
+          {processing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+          {processing ? "Processing…" : "Save"}
+        </Button>
+      </div>
 
-{/* Confirm apply modal */}
-<ApplyBackgroundModal
-  open={confirmOpen}
-  onCancel={() => setConfirmOpen(false)}
-  onConfirm={() => {
-    setConfirmOpen(false);
-    exportProcessed(); // ← τώρα τρέχει το πραγματικό save
-  }}
-/>
+      {/* Confirm apply modal (μόνο για blur/black) */}
+      <ApplyBackgroundModal
+        open={confirmOpen}
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          exportProcessed();
+        }}
+      />
     </div>
   );
 }
 
 /* ────────────────────────────────────────────────────────────── */
-/* Apply Background Confirm Modal (όμορφο Tailwind modal) */
+/* Apply Background Confirm Modal */
 
 function ApplyBackgroundModal({
   open,
@@ -540,11 +582,54 @@ function ApplyBackgroundModal({
   );
 }
 
+/* ────────────────────────────────────────────────────────────── */
+/* Close (discard) Confirm Modal */
 
+function ConfirmCloseModal({
+  open,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (typeof document === "undefined" || !open) return null;
 
-
-
-
+  return createPortal(
+    <div className="fixed inset-0 z-[130] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative w-[92%] max-w-md rounded-2xl bg-white shadow-2xl">
+        <div className="p-6">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-rose-100">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 text-rose-700" fill="none" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900">Discard this preview?</h3>
+          <p className="mt-2 text-sm text-gray-600">
+            If you close now, the uploaded video for this preview will be <strong>deleted</strong> and nothing will be saved.
+          </p>
+          <div className="mt-6 flex items-center justify-end gap-2">
+            <button
+              onClick={onCancel}
+              className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200"
+            >
+              Keep editing
+            </button>
+            <button
+              onClick={onConfirm}
+              className="rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-semibold text-white shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-rose-300"
+            >
+              Discard & Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 /* ────────────────────────────────────────────────────────────── */
 /* Fancy centered confirm modal (custom, not browser default) */
@@ -628,22 +713,24 @@ function ConfirmLeaveModal({
 }
 
 /* ────────────────────────────────────────────────────────────── */
-/* Upload Panel (όπως ήταν, με "Open file" διατηρημένο) */
+/* Upload Panel */
 
 function UploadPanel({ onUploadDone }: { onUploadDone: (rawUrl: string) => void }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const { toast } = useToast();
 
+  // fire once per successful upload
+  const openedOnceRef = useRef(false);
+
   const { state, progress, error, downloadURL, upload, cancel, reset } =
     useUploadReel(MAX_SIZE_MB, {
-      onDone: (info?: any) => {
-        const url = info?.downloadURL ?? downloadURL;
-        if (url) onUploadDone(url);
+      onDone: () => {
         toast({
           title: "Upload complete",
           description: "Your video has been uploaded successfully.",
         });
+        // Μην καλέσεις εδώ onUploadDone — γίνεται μέσω useEffect με guard
       },
     });
 
@@ -651,6 +738,7 @@ function UploadPanel({ onUploadDone }: { onUploadDone: (rawUrl: string) => void 
 
   const onFile = (file?: File) => {
     if (!file) return;
+    openedOnceRef.current = false; // νέο upload → επιτρέπουμε νέο auto-open
     reset();
     upload(file);
   };
@@ -668,15 +756,13 @@ function UploadPanel({ onUploadDone }: { onUploadDone: (rawUrl: string) => void 
     onFile(file);
   };
 
-
-  // Μόλις ολοκληρωθεί το upload και πάρουμε downloadURL, άνοιξε τον editor
-useEffect(() => {
-  if (state === "success" && downloadURL) {
-    // Μικρή καθυστέρηση για να “ηρεμήσει” το UI
-    setTimeout(() => onUploadDone(downloadURL), 0);
-  }
-}, [state, downloadURL, onUploadDone]);
-
+  // auto-open editor μόλις τελειώσει το upload (μία φορά)
+  useEffect(() => {
+    if (!openedOnceRef.current && state === "success" && downloadURL) {
+      openedOnceRef.current = true;
+      onUploadDone(downloadURL);
+    }
+  }, [state, downloadURL, onUploadDone]);
 
   return (
     <Card className="shadow-soft">
@@ -743,7 +829,7 @@ useEffect(() => {
               {(state === "success" ||
                 state === "error" ||
                 state === "canceled") && (
-                <Button variant="ghost" onClick={reset}>
+                <Button variant="ghost" onClick={() => { openedOnceRef.current = false; reset(); }}>
                   Reset
                 </Button>
               )}
@@ -757,10 +843,6 @@ useEffect(() => {
                   Open file
                 </a>
               )}
-
-
-
-
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
@@ -776,32 +858,35 @@ useEffect(() => {
 }
 
 /* ────────────────────────────────────────────────────────────── */
-/* Recording Panel (countdown + softer beep + Cancel Upload) */
+/* Recording Panel */
 
 type RecordingPanelProps = {
   onDraftReady: (url: string) => void;
   onDraftCleared: () => void;
-  onUploadDone: (rawUrl: string) => void; // ⬅️ ΝΕΟ prop
+  onUploadDone: (rawUrl: string) => void;
 };
 
 function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: RecordingPanelProps) {
   const { toast } = useToast();
+
+  // fire once per successful recording upload
+  const openedOnceRef = useRef(false);
+
   const {
     state: uploadState,
     progress,
     upload,
-    cancel: cancelUpload,   // <-- to cancel upload
+    cancel: cancelUpload,
     reset: resetUpload,
     downloadURL: recordedDownloadURL,
   } = useUploadReel(MAX_SIZE_MB, {
-    onDone: (info?: any) => {
-      const url = info?.downloadURL ?? recordedDownloadURL;
-      if (url) onUploadDone(url);
+    onDone: () => {
       toast({
         title: "Submitted",
         description: "Your recording has been uploaded.",
       });
       onDraftCleared();
+      // Μην καλέσεις εδώ onUploadDone — γίνεται μέσω useEffect με guard
     },
   });
 
@@ -826,13 +911,13 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
     []
   );
 
-
+  // auto-open editor μετά το submit του recording (μία φορά)
   useEffect(() => {
-  if (uploadState === "success" && recordedDownloadURL) {
-    setTimeout(() => onUploadDone(recordedDownloadURL), 0);
-  }
-}, [uploadState, recordedDownloadURL, onUploadDone]);
-
+    if (!openedOnceRef.current && uploadState === "success" && recordedDownloadURL) {
+      openedOnceRef.current = true;
+      onUploadDone(recordedDownloadURL);
+    }
+  }, [uploadState, recordedDownloadURL, onUploadDone]);
 
   useEffect(() => {
     return () => {
@@ -880,7 +965,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
     }
   }, [state]);
 
-  // softer, cinematic-ish beep
+  // softer beep
   const beep = () => {
     try {
       const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -889,14 +974,13 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
       const gain = ctx.createGain();
 
       osc.type = "sine";
-      osc.frequency.value = 660; // λίγο πιο μαλακό από 880
+      osc.frequency.value = 660;
       gain.gain.value = 0.0;
 
       osc.connect(gain);
       gain.connect(ctx.destination);
 
       const now = ctx.currentTime;
-      // απαλή είσοδος/έξοδος (ADSR-ish)
       gain.gain.linearRampToValueAtTime(0.03, now + 0.02);
       gain.gain.linearRampToValueAtTime(0.02, now + 0.10);
       gain.gain.linearRampToValueAtTime(0.0, now + 0.20);
@@ -905,16 +989,14 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
       osc.stop(now + 0.22);
 
       osc.onended = () => ctx.close();
-    } catch {
-      /* ignore */
-    }
+    } catch {}
   };
 
   async function startRecording() {
     if (!canRecord) return;
     const stream = await ensureStream();
 
-    // show live preview immediately
+    // live preview immediately
     if (videoRef.current) {
       const el = videoRef.current;
       el.srcObject = stream;
@@ -926,7 +1008,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
       await el.play().catch(() => {});
     }
 
-    // start countdown (not recorded)
+    // countdown (not recorded)
     setCountdown(3);
     setState("countdown");
     beep();
@@ -936,7 +1018,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
         const next = (n ?? 1) - 1;
         if (next <= 0) {
           if (ctdRef.current) window.clearInterval(ctdRef.current);
-          actuallyStartRecording(); // recorder starts AFTER countdown
+          actuallyStartRecording();
           return null;
         }
         beep();
@@ -1007,6 +1089,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
       URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
     }
+    openedOnceRef.current = false; // νέο recording flow
     setCountdown(null);
     setDuration(0);
     setState("idle");
@@ -1029,6 +1112,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
     const res = await fetch(previewUrl);
     const blob = await res.blob();
     const file = new File([blob], `${title || "recording"}.webm`, { type: blob.type });
+    openedOnceRef.current = false; // νέο upload για το recording
     await upload(file);
   }
 
@@ -1053,13 +1137,11 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
                       isMobile ? "[transform:scaleX(-1)]" : ""
                     }`}
                   />
-                  {/* Cinematic countdown overlay */}
+                  {/* countdown overlay */}
                   {state === "countdown" && countdown !== null && (
                     <div className="absolute inset-0 grid place-items-center bg-black/40">
                       <div className="relative flex items-center justify-center">
-                        {/* soft glow ring */}
                         <div className="absolute h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-                        {/* number card */}
                         <div className="relative rounded-2xl bg-white/90 px-12 py-8 shadow-2xl ring-1 ring-black/5">
                           <div className="text-center">
                             <div className="text-6xl font-extrabold text-gray-900 leading-none animate-pulse">
@@ -1216,9 +1298,6 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
           </div>
         </div>
 
-   
-
-
         <p className="text-sm text-muted-foreground">
           Tip: Aim for 30 seconds. Say your name, what role you’re applying for, and
           2–3 quick reasons why you’re a great fit.
@@ -1233,7 +1312,7 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
 
 export default function UploadCenter() {
   const [tab, setTab] = useState<"upload" | "record">("upload");
-const lastOpenedRef = useRef<string | null>(null);
+  const lastOpenedRef = useRef<string | null>(null);
   // draft state
   const [hasDraft, setHasDraft] = useState(false);
   const [draftUrl, setDraftUrl] = useState<string | null>(null);
@@ -1242,7 +1321,7 @@ const lastOpenedRef = useRef<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const nextTabRef = useRef<"upload" | "record">("upload");
 
-  // ⬇️ ΝΕΟ: Background editor state (όλα μέσα στο Upload)
+  // Background editor state
   const [bgOpen, setBgOpen] = useState(false);
   const [bgSrc, setBgSrc] = useState<string | null>(null);
 
@@ -1285,15 +1364,22 @@ const lastOpenedRef = useRef<string | null>(null);
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [hasDraft]);
-const { toast } = useToast();
- const handleUploadDone = (rawUrl: string) => {
-  if (!rawUrl) return;
-  if (lastOpenedRef.current === rawUrl && bgOpen) return; // guard (προστασία από διπλά ανοίγματα)
-  lastOpenedRef.current = rawUrl;
-  setBgSrc(rawUrl);
-  toast({ title: "Almost there", description: "Preview your background and click Apply to save." });
-  setBgOpen(true); // ⬅️ ανοίγει αυτόματα ο editor
-};
+
+  const { toast } = useToast();
+  const handleUploadDone = (rawUrl: string) => {
+    if (!rawUrl) return;
+    if (lastOpenedRef.current === rawUrl) return; // μην ανοίγεις ξανά για το ίδιο URL
+    lastOpenedRef.current = rawUrl;
+    setBgSrc(rawUrl);
+    toast({ title: "Almost there", description: "Preview your background and click Apply to save." });
+    setBgOpen(true); // ανοίγει αυτόματα ο editor
+  };
+
+  // όταν κλείνει το modal, ΜΗΝ μηδενίζεις το lastOpenedRef (ώστε να μην ξανανοίξει για ίδιο URL)
+  const handleCloseEditor = () => {
+    setBgOpen(false);
+    setBgSrc(null);
+  };
 
   return (
     <div className="max-w-5xl">
@@ -1340,8 +1426,8 @@ const { toast } = useToast();
         onCancel={cancelLeave}
       />
 
-      {/* ⬇️ Background editor modal */}
-      <BackgroundEditorModal open={bgOpen} src={bgSrc} onClose={() => setBgOpen(false)} />
+      {/* Background editor modal */}
+      <BackgroundEditorModal open={bgOpen} src={bgSrc} onClose={handleCloseEditor} />
     </div>
   );
 }
