@@ -35,6 +35,7 @@ import {
   doc,
   setDoc,
   serverTimestamp,
+  deleteDoc, // ⬅️ ADDED: για να σβήνουμε placeholder doc στο discard
 } from "firebase/firestore";
 import {
   getStorage,
@@ -66,7 +67,7 @@ function storagePathFromDownloadURL(url: string): string | null {
     // .../o/<ENCODED_PATH>?alt=media&token=...
     const idx = u.pathname.indexOf("/o/");
     if (idx === -1) return null;
-    const enc = u.pathname.slice(idx + 3); // μετά το "/o/"
+    const enc = u.pathname.slice(idx + 3);
     const encodedPath = enc.split("?")[0];
     return decodeURIComponent(encodedPath);
   } catch {
@@ -84,10 +85,12 @@ function BackgroundEditorModal({
   open,
   src,
   onClose,
+  onDiscard, // ⬅️ ADDED: callback για να γίνει πλήρες reset στο UI μετά το discard
 }: {
   open: boolean;
   src: string | null;
   onClose: () => void;
+  onDiscard?: () => void; // ⬅️ ADDED
 }) {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -153,7 +156,10 @@ function BackgroundEditorModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCloseOpen(true)} />
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={() => setCloseOpen(true)}
+      />
       <div className="relative w-[96%] max-w-3xl rounded-2xl border border-white/10 bg-white/[0.03] p-4">
         <Card className="bg-transparent border-0 shadow-none">
           <CardHeader className="flex items-center justify-between p-0 pb-4">
@@ -177,7 +183,6 @@ function BackgroundEditorModal({
                     const db = getFirestore();
                     const storage = getStorage();
 
-                    // Αν ξέρουμε reelId, γράφουμε/αντικαθιστούμε ΣΤΟ ΙΔΙΟ path
                     const fileKey = reelId ?? `processed_${Date.now()}`;
                     const outRef = ref(
                       storage,
@@ -187,13 +192,12 @@ function BackgroundEditorModal({
                     const processedURL = await getDownloadURL(outRef);
 
                     if (reelId) {
-                      // ενημέρωσε το ίδιο doc
                       await setDoc(
                         doc(db, "users", uid, "reels", reelId),
                         {
                           backgroundStyle: style,
-                          rawDownloadURL: processingSrc, // κρατάμε το αρχικό
-                          downloadURL: processedURL, // κάνουμε το processed ενεργό
+                          rawDownloadURL: processingSrc,
+                          downloadURL: processedURL,
                           processedDownloadURL: processedURL,
                           processedAt: serverTimestamp(),
                           status: "ready",
@@ -201,7 +205,12 @@ function BackgroundEditorModal({
                         { merge: true }
                       );
                     }
-                    toast({ title: "Saved", description: "Background style applied." });
+                    // ✅ Success toast (μόνο στο Save)
+                    toast({
+                      title: "Saved!",
+                      description: "Your ReelCV was updated successfully.",
+                      duration: 3500,
+                    });
                     onClose();
                     navigate("/dashboard/reelcv");
                   } catch (e: any) {
@@ -225,7 +234,7 @@ function BackgroundEditorModal({
         onCancel={() => setCloseOpen(false)}
         onConfirm={async () => {
           try {
-            // Διαγράφουμε το raw upload (αν είναι Firebase URL)
+            // 1) Σβήνουμε file στο Storage (το raw upload)
             if (src) {
               const path = storagePathFromDownloadURL(src);
               if (path) {
@@ -233,11 +242,36 @@ function BackgroundEditorModal({
                 await deleteObject(ref(storage, path)).catch(() => {});
               }
             }
+
+            // 2) Σβήνουμε και το Firestore doc (το 0s placeholder)
+            if (auth.currentUser) {
+              const uid = auth.currentUser.uid;
+              const db = getFirestore();
+              const reelsCol = collection(db, "users", uid, "reels");
+
+              if (reelId) {
+                await deleteDoc(doc(db, "users", uid, "reels", reelId)).catch(() => {});
+              } else if (src) {
+                // fallback: βρες doc με downloadURL==src ή rawDownloadURL==src
+                let snap = await getDocs(
+                  fsQuery(reelsCol, where("downloadURL", "==", src), fsLimit(1))
+                );
+                if (snap.empty) {
+                  snap = await getDocs(
+                    fsQuery(reelsCol, where("rawDownloadURL", "==", src), fsLimit(1))
+                  );
+                }
+                if (!snap.empty) {
+                  await deleteDoc(doc(db, "users", uid, "reels", snap.docs[0].id)).catch(
+                    () => {}
+                  );
+                }
+              }
+            }
+          } finally {
             setCloseOpen(false);
             onClose();
-          } catch {
-            setCloseOpen(false);
-            onClose();
+            onDiscard?.(); // ⬅️ ενημέρωσε το parent να κάνει reset UI
           }
         }}
       />
@@ -448,7 +482,7 @@ function BackgroundStylePreviewInline({
     const v = videoRef.current;
     v.muted = false;
 
-    const outStream = canvasRef.current.captureStream(30);
+    const outStream = (canvasRef.current as HTMLCanvasElement).captureStream(30);
     const srcStream: MediaStream =
       (v as any).captureStream?.() || (v as any).mozCaptureStream?.() || new MediaStream();
     srcStream.getAudioTracks().forEach((t) => outStream.addTrack(t));
@@ -478,7 +512,6 @@ function BackgroundStylePreviewInline({
 
   const handleSaveClick = () => {
     if (style === "original") {
-      // Χωρίς confirm για original
       exportProcessed();
     } else {
       setConfirmOpen(true);
@@ -720,17 +753,15 @@ function UploadPanel({ onUploadDone }: { onUploadDone: (rawUrl: string) => void 
   const [dragActive, setDragActive] = useState(false);
   const { toast } = useToast();
 
-  // fire once per successful upload
-  const openedOnceRef = useRef(false);
-
   const { state, progress, error, downloadURL, upload, cancel, reset } =
     useUploadReel(MAX_SIZE_MB, {
-      onDone: () => {
+      onDone: (info?: any) => {
+        const url = info?.downloadURL ?? downloadURL;
+        if (url) onUploadDone(url);
         toast({
           title: "Upload complete",
           description: "Your video has been uploaded successfully.",
         });
-        // Μην καλέσεις εδώ onUploadDone — γίνεται μέσω useEffect με guard
       },
     });
 
@@ -738,7 +769,6 @@ function UploadPanel({ onUploadDone }: { onUploadDone: (rawUrl: string) => void 
 
   const onFile = (file?: File) => {
     if (!file) return;
-    openedOnceRef.current = false; // νέο upload → επιτρέπουμε νέο auto-open
     reset();
     upload(file);
   };
@@ -756,11 +786,10 @@ function UploadPanel({ onUploadDone }: { onUploadDone: (rawUrl: string) => void 
     onFile(file);
   };
 
-  // auto-open editor μόλις τελειώσει το upload (μία φορά)
+  // auto-open editor μόλις τελειώσει το upload
   useEffect(() => {
-    if (!openedOnceRef.current && state === "success" && downloadURL) {
-      openedOnceRef.current = true;
-      onUploadDone(downloadURL);
+    if (state === "success" && downloadURL) {
+      setTimeout(() => onUploadDone(downloadURL), 0);
     }
   }, [state, downloadURL, onUploadDone]);
 
@@ -829,7 +858,7 @@ function UploadPanel({ onUploadDone }: { onUploadDone: (rawUrl: string) => void 
               {(state === "success" ||
                 state === "error" ||
                 state === "canceled") && (
-                <Button variant="ghost" onClick={() => { openedOnceRef.current = false; reset(); }}>
+                <Button variant="ghost" onClick={reset}>
                   Reset
                 </Button>
               )}
@@ -868,10 +897,6 @@ type RecordingPanelProps = {
 
 function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: RecordingPanelProps) {
   const { toast } = useToast();
-
-  // fire once per successful recording upload
-  const openedOnceRef = useRef(false);
-
   const {
     state: uploadState,
     progress,
@@ -880,13 +905,14 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
     reset: resetUpload,
     downloadURL: recordedDownloadURL,
   } = useUploadReel(MAX_SIZE_MB, {
-    onDone: () => {
+    onDone: (info?: any) => {
+      const url = info?.downloadURL ?? recordedDownloadURL;
+      if (url) onUploadDone(url);
       toast({
         title: "Submitted",
         description: "Your recording has been uploaded.",
       });
       onDraftCleared();
-      // Μην καλέσεις εδώ onUploadDone — γίνεται μέσω useEffect με guard
     },
   });
 
@@ -911,11 +937,10 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
     []
   );
 
-  // auto-open editor μετά το submit του recording (μία φορά)
+  // auto-open editor μετά το submit του recording
   useEffect(() => {
-    if (!openedOnceRef.current && uploadState === "success" && recordedDownloadURL) {
-      openedOnceRef.current = true;
-      onUploadDone(recordedDownloadURL);
+    if (uploadState === "success" && recordedDownloadURL) {
+      setTimeout(() => onUploadDone(recordedDownloadURL), 0);
     }
   }, [uploadState, recordedDownloadURL, onUploadDone]);
 
@@ -1089,7 +1114,6 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
       URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
     }
-    openedOnceRef.current = false; // νέο recording flow
     setCountdown(null);
     setDuration(0);
     setState("idle");
@@ -1112,7 +1136,6 @@ function RecordingPanel({ onDraftReady, onDraftCleared, onUploadDone }: Recordin
     const res = await fetch(previewUrl);
     const blob = await res.blob();
     const file = new File([blob], `${title || "recording"}.webm`, { type: blob.type });
-    openedOnceRef.current = false; // νέο upload για το recording
     await upload(file);
   }
 
@@ -1325,6 +1348,9 @@ export default function UploadCenter() {
   const [bgOpen, setBgOpen] = useState(false);
   const [bgSrc, setBgSrc] = useState<string | null>(null);
 
+  // ⬅️ ADDED: nonce ώστε με discard να remount-άρουν Upload/Record panels (πλήρες reset UI)
+  const [resetNonce, setResetNonce] = useState(0);
+
   // Only warn when LEAVING the "record" tab with a draft.
   const requestTabChange = (value: string) => {
     const next = (value as "upload" | "record") ?? "upload";
@@ -1368,17 +1394,29 @@ export default function UploadCenter() {
   const { toast } = useToast();
   const handleUploadDone = (rawUrl: string) => {
     if (!rawUrl) return;
-    if (lastOpenedRef.current === rawUrl) return; // μην ανοίγεις ξανά για το ίδιο URL
+    if (lastOpenedRef.current === rawUrl && bgOpen) return; // guard
     lastOpenedRef.current = rawUrl;
     setBgSrc(rawUrl);
     toast({ title: "Almost there", description: "Preview your background and click Apply to save." });
     setBgOpen(true); // ανοίγει αυτόματα ο editor
   };
 
-  // όταν κλείνει το modal, ΜΗΝ μηδενίζεις το lastOpenedRef (ώστε να μην ξανανοίξει για ίδιο URL)
+  // όταν κλείνει το modal, καθάρισε refs για να μη ξανανοίξει
   const handleCloseEditor = () => {
     setBgOpen(false);
     setBgSrc(null);
+    lastOpenedRef.current = null;
+  };
+
+  // ⬅️ ADDED: όταν γίνει discard, κλείσε modal, καθάρισε state, και κάνε reset UI panels
+  const handleDiscard = () => {
+    handleCloseEditor();
+    setHasDraft(false);
+    if (draftUrl) {
+      URL.revokeObjectURL(draftUrl);
+      setDraftUrl(null);
+    }
+    setResetNonce((n) => n + 1); // remount Upload/Record -> “αρχική οθόνη”
   };
 
   return (
@@ -1394,12 +1432,13 @@ export default function UploadCenter() {
         </TabsList>
 
         <TabsContent value="upload">
-          <UploadPanel onUploadDone={handleUploadDone} />
+          <UploadPanel key={`upload-${resetNonce}`} onUploadDone={handleUploadDone} />
         </TabsContent>
 
         {/* forceMount: keep Record state alive */}
         <TabsContent value="record" forceMount>
           <RecordingPanel
+            key={`record-${resetNonce}`}
             onUploadDone={handleUploadDone}
             onDraftReady={(url) => {
               setHasDraft(true);
@@ -1427,7 +1466,12 @@ export default function UploadCenter() {
       />
 
       {/* Background editor modal */}
-      <BackgroundEditorModal open={bgOpen} src={bgSrc} onClose={handleCloseEditor} />
+      <BackgroundEditorModal
+        open={bgOpen}
+        src={bgSrc}
+        onClose={handleCloseEditor}
+        onDiscard={handleDiscard} // ⬅️ ADDED: reset UI & καθαρισμός μετά από discard
+      />
     </div>
   );
 }

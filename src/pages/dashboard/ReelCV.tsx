@@ -34,6 +34,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserReels, type ReelDoc, type Visibility } from "@/hooks/useUserReels";
 import { createPortal } from "react-dom";
 
+// ⬇️ KEEP: we’ll show this inside a modal
+import ProfilePreview from "@/pages/dashboard/components/ProfilePreview";
+
+// ⬇️ NEW: dialog components for the preview modal
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
 // autosave deps (and load)
 import { auth, firestore } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
@@ -471,6 +477,9 @@ export default function ReelCV() {
     await saveProfile();
   };
 
+  /* -------- NEW: preview modal state -------- */
+  const [previewOpen, setPreviewOpen] = useState(false);
+
   /* =================================================================== */
 
   return (
@@ -485,7 +494,7 @@ export default function ReelCV() {
         </div>
         <div className="flex items-center gap-3">
           {savedLabel && <span className="text-xs text-muted-foreground">{savedLabel}</span>}
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => setPreviewOpen(true)}>
             <Eye className="w-4 h-4 mr-2" />
             Preview
           </Button>
@@ -771,6 +780,18 @@ export default function ReelCV() {
 
       {/* Custom delete modal */}
       <ConfirmDeleteModal open={deleteOpen} onConfirm={confirmDelete} onCancel={closeDelete} />
+
+      {/* ⬇️ NEW: Preview modal (opens from the header button) */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Profile Preview</DialogTitle>
+          </DialogHeader>
+          <div className="mt-4">
+            <ProfilePreview />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

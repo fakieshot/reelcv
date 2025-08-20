@@ -13,14 +13,16 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import DashboardIndex from "@/pages/dashboard/Index";
 import EmployerDashboard from "./pages/dashboard/EmployerDashboard";
 import SeekerDashboard from "./pages/dashboard/SeekerDashboard";
-// src/main.tsx (or wherever you define routes)
 import UploadCenter from "./pages/dashboard/Upload";
+import ReelCV from "./pages/dashboard/ReelCV";
+import SupportDesk from "@/pages/dashboard/admin/SupportDesk";
 
 // GUARDS
 import RequireAuth from "@/components/auth/RequireAuth";
 import RoleGate from "@/components/auth/RoleGate";
-import ReelCV from "./pages/dashboard/ReelCV";
-import SupportDesk from "@/pages/dashboard/admin/SupportDesk";
+
+// TOASTER
+import { Toaster } from "@/components/ui/toaster";
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
@@ -29,7 +31,7 @@ createRoot(document.getElementById("root")!).render(
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/check-email" element={<CheckEmail />} />
-     
+
       {/* NESTED DASHBOARD ROUTES */}
       <Route
         path="/dashboard"
@@ -37,16 +39,13 @@ createRoot(document.getElementById("root")!).render(
           <RequireAuth verified>
             <DashboardLayout />
           </RequireAuth>
-          
         }
       >
-
-<Route path="/dashboard/admin/support" element={<SupportDesk />} />
-
-
+        <Route path="/dashboard/admin/support" element={<SupportDesk />} />
 
         <Route index element={<DashboardIndex />} />
-      {/* Candidate */}
+
+        {/* Employer */}
         <Route
           path="employer"
           element={
@@ -56,6 +55,7 @@ createRoot(document.getElementById("root")!).render(
           }
         />
 
+        {/* Jobseeker */}
         <Route
           path="jobseeker"
           element={
@@ -65,13 +65,28 @@ createRoot(document.getElementById("root")!).render(
           }
         />
 
- <Route path="upload" element={<RoleGate allow="jobseeker"><UploadCenter /></RoleGate>} />
-<Route path="reelcv" element={<RoleGate allow="jobseeker"><ReelCV /></RoleGate>} />
-
-
+        <Route
+          path="upload"
+          element={
+            <RoleGate allow="jobseeker">
+              <UploadCenter />
+            </RoleGate>
+          }
+        />
+        <Route
+          path="reelcv"
+          element={
+            <RoleGate allow="jobseeker">
+              <ReelCV />
+            </RoleGate>
+          }
+        />
       </Route>
 
       <Route path="*" element={<NotFound />} />
     </Routes>
+
+    {/* ✅ Global Toaster - appears bottom-right */}
+    <Toaster />
   </BrowserRouter>
 );

@@ -43,7 +43,7 @@ export type UserProfile = {
   skills?: string[];
   socials?: { linkedin?: string; github?: string; site?: string };
   visibility?: "public" | "private";
-  primaryReelId?: string;
+  primaryReelId?: string; // <— χρησιμοποιείται για το primary reel
   createdAt?: any;
   updatedAt?: any;
 };
@@ -129,14 +129,13 @@ export function useUserProfile(autosave = true, debounceMs = 800) {
         const toSave = stripUndefined<UserProfile>({
           ...(profile || {}),
           ...(patch || {}),
-          // μην γράφεις createdAt = undefined — μόνο αν δεν υπάρχει καθόλου
           ...(baselineRef.current?.createdAt ? {} : { createdAt: serverTimestamp() }),
           updatedAt: serverTimestamp(),
         });
 
         await setDoc(ref, toSave, { merge: true });
 
-        // ορισμός νέου baseline (για να “σβήσει” το dirty state)
+        // baseline update
         baselineRef.current = { ...(profile || {}), ...(patch || {}) };
         setLastSavedAt(Date.now());
       } catch (e: any) {
