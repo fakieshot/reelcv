@@ -38,14 +38,34 @@ import { createPortal } from "react-dom";
 import ProfilePreview from "@/pages/dashboard/components/ProfilePreview";
 
 // ⬇️ NEW: dialog components for the preview modal
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle,DialogClose } from "@/components/ui/dialog";
 
 // autosave deps (and load)
 import { auth, firestore } from "@/lib/firebase";
-import { doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import {
+  doc,
+  setDoc,
+  serverTimestamp,
+  getDoc,
+  // ⬇️ NEW imports used for Experience tab
+  collection,
+  query,
+  onSnapshot,
+  orderBy,
+  deleteDoc,
+// 
+getFirestore,
+where,
+limit,
+
+
+} from "firebase/firestore";
 
 // ✅ hook για profile/socials
 import { useUserProfile } from "@/hooks/useUserProfile";
+
+// ⬇️ NEW: Add Experience modal component
+import AddExperienceModal from "@/pages/dashboard/components/AddExperienceModal";
 
 /* ---------------- helpers ---------------- */
 const formatBytes = (n: number) => {
@@ -235,6 +255,15 @@ type ProfileForm = {
   skills: string[];
 };
 
+type Experience = {
+  id: string;
+  title: string;
+  company?: string;
+  start?: string;
+  end?: string;
+  description?: string;
+};
+
 export default function ReelCV() {
   const { toast } = useToast();
 
@@ -341,6 +370,35 @@ export default function ReelCV() {
   const [newSkill, setNewSkill] = useState("");
 
   const dirty = useMemo(() => !deepEqual(form, baseline), [form, baseline]);
+
+
+// Live primary reel listener -> κρατά πάντα συγχρονισμένο το primaryId
+// 🔴 Single source of truth: ακούμε το primaryReelId από το profile/main
+useEffect(() => {
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    setPrimaryId(null);
+    return;
+  }
+  const db = getFirestore();
+  const profRef = doc(db, "users", uid, "profile", "main");
+
+  const unsub = onSnapshot(
+    profRef,
+    (snap) => {
+      const d = snap.data() as any | undefined;
+      setPrimaryId(d?.primaryReelId ?? null);
+    },
+    () => setPrimaryId(null)
+  );
+
+  return () => unsub();
+}, [auth.currentUser?.uid]);
+
+
+
+
+
 
   // Load profile on mount / when uid changes
   useEffect(() => {
@@ -480,6 +538,52 @@ export default function ReelCV() {
   /* -------- NEW: preview modal state -------- */
   const [previewOpen, setPreviewOpen] = useState(false);
 
+  /* -------- NEW: Experience state (live) -------- */
+  const [expOpen, setExpOpen] = useState(false);
+  const [experiences, setExperiences] = useState<Experience[]>([]);
+
+  useEffect(() => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    const colRef = collection(firestore, "users", uid, "profile", "main", "experience");
+    const q = query(colRef, orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const rows: Experience[] = snap.docs.map((d) => {
+          const x = d.data() as any;
+          return {
+            id: d.id,
+            title: x.title || "",
+            company: x.company || "",
+            start: x.start || "",
+            end: x.end || "",
+            description: x.description || "",
+          };
+        });
+        setExperiences(rows);
+      },
+      () => setExperiences([])
+    );
+    return () => unsub();
+  }, [auth.currentUser?.uid]);
+
+  const deleteExperience = async (id: string) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    try {
+      await deleteDoc(doc(firestore, "users", uid, "profile", "main", "experience", id));
+      toast({ title: "Removed", description: "Experience deleted." });
+    } catch (e: any) {
+      toast({
+        title: "Failed to delete",
+        description: e?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   /* =================================================================== */
 
   return (
@@ -493,16 +597,20 @@ export default function ReelCV() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {savedLabel && <span className="text-xs text-muted-foreground">{savedLabel}</span>}
-          <Button variant="outline" onClick={() => setPreviewOpen(true)}>
-            <Eye className="w-4 h-4 mr-2" />
-            Preview
-          </Button>
-          <Button onClick={handleSaveClick} disabled={isSaveDisabled} className="gradient-primary">
-            <Save className="w-4 h-4 mr-2" />
-            {saveButtonLabel}
-          </Button>
-        </div>
+  {savedLabel && <span className="text-xs text-muted-foreground">{savedLabel}</span>}
+  <Button
+    onClick={() => setPreviewOpen(true)}
+    className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+  >
+    <Eye className="w-4 h-4 mr-2" />
+    Preview
+  </Button>
+  <Button onClick={handleSaveClick} disabled={isSaveDisabled} className="gradient-primary">
+    <Save className="w-4 h-4 mr-2" />
+    {saveButtonLabel}
+  </Button>
+</div>
+
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-6">
@@ -602,20 +710,21 @@ export default function ReelCV() {
                 Upload or record short reels and manage visibility & primary reel.
               </p>
             </div>
-            <div className="flex gap-2">
-              <Link to="/dashboard/upload">
-                <Button variant="outline">
-                  <UploadIcon className="h-4 w-4 mr-2" />
-                  Upload new
-                </Button>
-              </Link>
-              <Link to="/dashboard/upload?tab=record">
-                <Button>
-                  <Video className="h-4 w-4 mr-2" />
-                  Record new
-                </Button>
-              </Link>
-            </div>
+           <div className="flex gap-2">
+  <Link to="/dashboard/upload">
+    <Button className="bg-primary/90 text-primary-foreground hover:bg-primary">
+      <UploadIcon className="h-4 w-4 mr-2" />
+      Upload new
+    </Button>
+  </Link>
+  <Link to="/dashboard/upload?tab=record">
+    <Button>
+      <Video className="h-4 w-4 mr-2" />
+      Record new
+    </Button>
+  </Link>
+</div>
+
           </div>
 
           {loading ? (
@@ -656,7 +765,7 @@ export default function ReelCV() {
                 <ReelCard
                   key={reel.id}
                   reel={reel}
-                  isPrimary={primaryId === reel.id}
+                 isPrimary={(reel as any).isPrimary || primaryId === reel.id}
                   onSetPrimary={onSetPrimary}
                   onVisibility={onChangeVisibility}
                   onCopy={onCopy}
@@ -688,27 +797,39 @@ export default function ReelCV() {
                 <CardTitle>Work Experience</CardTitle>
                 <CardDescription>Add your professional experience and achievements</CardDescription>
               </div>
-              <Button>
+              <Button onClick={() => setExpOpen(true)}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add Experience
               </Button>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-foreground">Senior Frontend Developer</h3>
-                    <p className="text-primary">TechCorp Inc.</p>
-                    <p className="text-sm text-muted-foreground">2021 - Present</p>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      Led development of modern web applications using React and TypeScript.
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="sm">
-                    <X className="w-4 h-4" />
-                  </Button>
+              {experiences.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No experience added yet.</div>
+              ) : (
+                <div className="space-y-4">
+                  {experiences.map((exp) => (
+                    <div key={exp.id} className="rounded-xl border bg-black/5 p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-foreground">{exp.title}</h3>
+                          {exp.company && <p className="text-primary">{exp.company}</p>}
+                          <p className="text-sm text-muted-foreground">
+                            {[exp.start, exp.end].filter(Boolean).join(" - ")}
+                          </p>
+                          {exp.description && (
+                            <p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap">
+                              {exp.description}
+                            </p>
+                          )}
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => deleteExperience(exp.id)}>
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -781,17 +902,38 @@ export default function ReelCV() {
       {/* Custom delete modal */}
       <ConfirmDeleteModal open={deleteOpen} onConfirm={confirmDelete} onCancel={closeDelete} />
 
-      {/* ⬇️ NEW: Preview modal (opens from the header button) */}
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>Profile Preview</DialogTitle>
-          </DialogHeader>
-          <div className="mt-4">
-            <ProfilePreview />
-          </div>
-        </DialogContent>
-      </Dialog>
+{/* Preview modal */}
+<Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+  <DialogContent className="max-w-6xl p-0 bg-transparent border-none shadow-none">
+    {/* A11y τίτλος (κρυφός) για να φύγουν τα warnings */}
+    <DialogHeader className="sr-only">
+      <DialogTitle>Profile Preview</DialogTitle>
+    </DialogHeader>
+
+    <div className="relative">
+      {/* Close X μέσα στο panel, πάνω δεξιά */}
+      <DialogClose asChild>
+        <button
+          aria-label="Close preview"
+          className="absolute -right-2 -top-2 z-20 rounded-full p-2
+                     bg-black/70 text-white hover:bg-black/80
+                     border border-white/10 shadow"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </DialogClose>
+
+      {/* Σκούρο panel γύρω από το περιεχόμενο του preview */}
+      <div className="rounded-2xl bg-neutral-900/85 ring-1 ring-white/10 p-6 shadow-2xl">
+        <ProfilePreview />
+      </div>
+    </div>
+  </DialogContent>
+</Dialog>
+
+
+      {/* ⬇️ NEW: Add Experience modal */}
+      <AddExperienceModal open={expOpen} onOpenChange={setExpOpen} />
     </div>
   );
 }

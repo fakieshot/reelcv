@@ -370,7 +370,7 @@ export default function SupportWidget() {
           {/* Messages list */}
           <div
             className="mt-4 flex h-[60vh] flex-col gap-4 overflow-y-auto rounded-xl
-                       p-3 bg-black/20"
+                       p-3 bg-black/20 thin-scrollbar"
           >
             {messages.map((m) => {
               const mine = m.sender !== "admin";

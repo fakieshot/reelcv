@@ -44,7 +44,8 @@ export default function AddExperienceModal({ open, onOpenChange }: Props) {
       setSaving(true);
       const db = getFirestore();
       const expId = crypto.randomUUID();
-      const expRef = doc(collection(db, "users", uid, "profile", "profile", "experience"), expId);
+      // ✅ FIXED PATH: users/{uid}/profile/main/experience/{expId}
+      const expRef = doc(collection(db, "users", uid, "profile", "main", "experience"), expId);
       await setDoc(expRef, {
         title: title.trim(),
         company: company.trim() || null,
@@ -52,6 +53,7 @@ export default function AddExperienceModal({ open, onOpenChange }: Props) {
         end: end.trim() || null,
         description: description.trim() || null,
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
 
       toast({ title: "Experience added", description: "Your experience entry has been saved." });

@@ -20,6 +20,7 @@ import SupportDesk from "@/pages/dashboard/admin/SupportDesk";
 // GUARDS
 import RequireAuth from "@/components/auth/RequireAuth";
 import RoleGate from "@/components/auth/RoleGate";
+import "@/styles/scrollbar.css";
 
 // TOASTER
 import { Toaster } from "@/components/ui/toaster";

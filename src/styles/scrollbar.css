@@ -1,0 +1,26 @@
+/* Dark, subtle scrollbar */
+.thin-scrollbar {
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+/* WebKit (Chrome/Edge/Safari) */
+.thin-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.25);
+  border-radius: 9999px;
+  border: 2px solid transparent;       /* δίνει “glass” αίσθηση */
+  background-clip: padding-box;
+}
+.thin-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.4);
+}
+.thin-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
