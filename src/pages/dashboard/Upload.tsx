@@ -425,14 +425,27 @@ function BackgroundStylePreviewInline({
       personCtx.drawImage(softMaskCanvas, 0, 0, dims.W, dims.H);
       personCtx.globalCompositeOperation = "source-over";
 
-      if (style === "black") {
-        ctx.clearRect(0, 0, dims.W, dims.H);
-        ctx.fillStyle = "black";
-        ctx.fillRect(0, 0, dims.W, dims.H);
-        ctx.drawImage(personCanvas, 0, 0, dims.W, dims.H);
-        busyRef.current = false;
-        return;
-      }
+     if (style === "black") {
+  ctx.clearRect(0, 0, dims.W, dims.H);
+  // επαγγελματικό βαθύ γκρι (Tailwind slate-900)
+  ctx.fillStyle = "#0f172a";
+  ctx.fillRect(0, 0, dims.W, dims.H);
+
+  // (προαιρετικό) διακριτικό vignette για πιο premium look
+   const g = ctx.createRadialGradient(
+     dims.W / 2, dims.H / 2, Math.min(dims.W, dims.H) * 0.1,
+     dims.W / 2, dims.H / 2, Math.max(dims.W, dims.H) * 0.7
+   );
+   g.addColorStop(0, "rgba(0,0,0,0)");
+   g.addColorStop(1, "rgba(0,0,0,0.25)");
+ ctx.fillStyle = g;
+   ctx.fillRect(0, 0, dims.W, dims.H);
+
+  ctx.drawImage(personCanvas, 0, 0, dims.W, dims.H);
+  busyRef.current = false;
+  return;
+}
+
 
       // 3) bgCanvas = (blurred original) * (1 - softMask)
       bgCtx.clearRect(0, 0, dims.W, dims.H);
@@ -537,7 +550,8 @@ function BackgroundStylePreviewInline({
           </div>
           <div className="flex items-center space-x-2 rounded-lg border border-white/10 p-3">
             <RadioGroupItem value="black" id="bg-black" />
-            <Label htmlFor="bg-black" className="text-white/80">Solid Black</Label>
+            <Label htmlFor="bg-black" className="text-white/80">Solid Gray</Label>
+
           </div>
         </RadioGroup>
       </div>

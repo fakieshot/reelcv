@@ -16,12 +16,13 @@ import SeekerDashboard from "./pages/dashboard/SeekerDashboard";
 import UploadCenter from "./pages/dashboard/Upload";
 import ReelCV from "./pages/dashboard/ReelCV";
 import SupportDesk from "@/pages/dashboard/admin/SupportDesk";
+import Messages from "./pages/dashboard/messages"; // ⬅️ NEW
 
 // GUARDS
 import RequireAuth from "@/components/auth/RequireAuth";
 import RoleGate from "@/components/auth/RoleGate";
 import "@/styles/scrollbar.css";
-
+import { setLogLevel } from "firebase/firestore";
 // TOASTER
 import { Toaster } from "@/components/ui/toaster";
 
@@ -82,6 +83,10 @@ createRoot(document.getElementById("root")!).render(
             </RoleGate>
           }
         />
+        setLogLevel("debug");
+
+        {/* ✅ Messages (DMs) */}
+        <Route path="messages" element={<Messages />} />
       </Route>
 
       <Route path="*" element={<NotFound />} />

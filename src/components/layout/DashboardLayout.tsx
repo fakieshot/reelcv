@@ -3,8 +3,11 @@ import DashboardSidebar from "@/pages/dashboard/DashboardSidebar";
 import DashboardHeader from "@/pages/dashboard/DashboardHeader";
 import { Outlet, useLocation } from "react-router-dom";
 import SupportWidget from "@/components/support/SupportWidget";
+import usePresence from "@/hooks/usePresence";
 
-export default function DashboardLayout() {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  usePresence();
+  
   const location = useLocation();
 
   // 🔒 Κρύψε το global chrome ΜΟΝΟ στο admin support desk
@@ -51,5 +54,7 @@ export default function DashboardLayout() {
       {/* Floating help button: όχι στο support desk */}
       {!hideChrome && <SupportWidget />}
     </div>
+    
   );
+   return <>{children}</>;
 }

@@ -21,6 +21,9 @@ import {
   BarChart3,
 } from "lucide-react";
 
+import useUnreadThreads from "@/hooks/useUnreadThreads";
+
+
 export default function DashboardSidebar() {
   const location = useLocation();
   void location;
@@ -57,6 +60,10 @@ export default function DashboardSidebar() {
         : "hover:bg-white/5",
     ].join(" ");
 
+  // === Unread badge (με βάση τα threads) ===
+  const unreadTotal = useUnreadThreads();
+  const hasUnreads = unreadTotal > 0;
+
   return (
     <Sidebar
       className="
@@ -65,7 +72,6 @@ export default function DashboardSidebar() {
         shadow-[0_10px_40px_-10px_rgba(0,0,0,.6)]
         border-0
       "
-      /* ✅ Κάνουμε το sidebar border ΠΛΗΡΩΣ διάφανο για να φύγει η λευκή γραμμή */
       style={
         {
           "--sidebar-background": "transparent",
@@ -74,7 +80,7 @@ export default function DashboardSidebar() {
           "--sidebar-primary-foreground": "17 17 17",
           "--sidebar-accent": "255 255 255 / 0.08",
           "--sidebar-accent-foreground": "255 255 255",
-          "--sidebar-border": "0 0% 100% / 0", // 👈 transparent
+          "--sidebar-border": "0 0% 100% / 0",
           "--sidebar-ring": "139 92 246",
         } as React.CSSProperties
       }
@@ -94,7 +100,17 @@ export default function DashboardSidebar() {
                   >
                     <NavLink to={item.url} end className={navCls}>
                       <item.icon className="h-5 w-5" />
-                      <span>{item.title}</span>
+                      <span className="flex items-center gap-2">
+                        {item.title}
+                        {item.title === "Messages" && hasUnreads && (
+                          <span
+                            aria-label="unread messages"
+                            className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-red-500 text-[10px] font-bold"
+                          >
+                            !
+                          </span>
+                        )}
+                      </span>
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

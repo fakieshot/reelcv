@@ -424,7 +424,7 @@ useEffect(() => {
         }
       } catch {
         // ignore load errors for now
-      }
+      } 
     })();
   }, [auth.currentUser?.uid]);
 
@@ -462,6 +462,43 @@ useEffect(() => {
         },
         { merge: true }
       );
+// ⬆️ κάπου κοντά στα helpers του αρχείου
+const toSearchKey = (s: string) =>
+  (s || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+
+      // μέσα στη saveProfile, ΜΕΤΑ το setDoc(...) που γράφει το profile/main
+await setDoc(
+  doc(firestore, "users", uid),
+  {
+    name: form.fullName,
+    nameLower: toSearchKey(form.fullName),
+    // προαιρετικό: visibility: "public", // αν θες να είναι public by default
+  },
+  { merge: true }
+);
+
+
+
+
+
+
+
+
+      await setDoc(
+  doc(firestore, "users", uid),
+  {
+    name: form.fullName,
+    nameLower: form.fullName.trim().toLowerCase(),
+    // ΔΕΝ αλλάζω visibility εδώ. Αν θες να το κάνεις public από εδώ, βάλε:
+    // visibility: "public",
+  },
+  { merge: true }
+);
 
       setBaseline(form);
       lastSavedAtRef.current = Date.now();
@@ -904,7 +941,7 @@ useEffect(() => {
 
 {/* Preview modal */}
 <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-  <DialogContent className="max-w-6xl p-0 bg-transparent border-none shadow-none">
+  <DialogContent hideClose className="max-w-6xl p-0 bg-transparent border-none shadow-none">
     {/* A11y τίτλος (κρυφός) για να φύγουν τα warnings */}
     <DialogHeader className="sr-only">
       <DialogTitle>Profile Preview</DialogTitle>

@@ -43,6 +43,9 @@ export default function Register() {
 
   const passLabel = ["Too weak", "Weak", "Okay", "Good", "Strong"][passScore];
 
+
+
+  
   function prettifyAuthError(code?: string) {
     switch (code) {
       case "auth/email-already-in-use":
@@ -57,6 +60,18 @@ export default function Register() {
         return "Something went wrong. Please try again.";
     }
   }
+
+
+// κοντά στην κορυφή του αρχείου
+const toSearchKey = (s: string) =>
+  (s || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+
+
 
   async function handleRegister() {
     setUiError(null);
@@ -78,13 +93,17 @@ export default function Register() {
       const user = userCred.user;
 
       // Store base user doc
-      await setDoc(doc(firestore, "users", user.uid), {
-        uid: user.uid,
-        name,
-        email,
-        role,
-        createdAt: serverTimestamp(),
-      });
+   await setDoc(doc(firestore, "users", user.uid), {
+  uid: user.uid,
+  name,
+  nameLower: toSearchKey(name || user.email.split("@")[0]),
+  email,
+  role,
+  visibility: "public",        // αν θες να είναι ορατοί στο search
+  createdAt: serverTimestamp(),
+});
+
+
 
       // Email verification
       await sendEmailVerification(user, {
