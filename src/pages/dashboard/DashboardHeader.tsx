@@ -130,24 +130,27 @@ export default function DashboardHeader() {
       });
 
       // ➕ Υπολογισμός connection state ανά αποτέλεσμα (μέχρι 8 – οκ)
-      const withConn = await Promise.all(base.map(async r => {
-        if (!me || me === r.id) return { ...r, conn: undefined as any };
-        try {
-          const cs = await getDoc(doc(db, "connections", pairId(me, r.id)));
-          if (!cs.exists()) return { ...r, conn: "none" as const };
-          const cd = cs.data() as any;
-          if (cd.status === "accepted") return { ...r, conn: "connected" as const };
-          if (cd.status === "pending") {
-            if (cd.requestedBy === me) return { ...r, conn: "outgoing" as const };
-            if (cd.requestedTo === me) return { ...r, conn: "incoming" as const };
-          }
-        } catch {}
-        return { ...r, conn: "none" as const };
-      }));
+      const withConn = await Promise.all(
+        base.map(async (r) => {
+          if (!me || me === r.id) return { ...r, conn: undefined as any };
+          try {
+            const cs = await getDoc(doc(db, "connections", pairId(me, r.id)));
+            if (!cs.exists()) return { ...r, conn: "none" as const };
+            const cd = cs.data() as any;
+            if (cd.status === "accepted") return { ...r, conn: "connected" as const };
+            if (cd.status === "pending") {
+              if (cd.requestedBy === me) return { ...r, conn: "outgoing" as const };
+              if (cd.requestedTo === me) return { ...r, conn: "incoming" as const };
+            }
+          } catch {}
+          return { ...r, conn: "none" as const };
+        })
+      );
       setResults(withConn);
-    } finally { setSearching(false); }
+    } finally {
+      setSearching(false);
+    }
   };
-
 
   const onSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const t = e.target.value;
@@ -160,17 +163,28 @@ export default function DashboardHeader() {
   // Bell: ONLY Pending connects (αφαιρέθηκε η λογική για messages)
   // + ΕΙΔΟΠΟΙΗΣΕΙΣ από users/{uid}/notifications
   // ================================
-  function PendingConnectsBell() {
+   function PendingConnectsBell() {
     const db = getFirestore();
-    // ➜ ΠΑΡΕ reactive UID, όχι auth.currentUser
     const { user } = useAuthUser();
     const me = user?.uid ?? null;
     const nav = useNavigate();
 
     const [open, setOpen] = useState(false);
-    const [pending, setPending] = useState<Array<{ id: string; requestedBy: string; requestedTo: string; members: string[] }>>([]);
-    // 🔹 ΝΕΟ: inbox ειδοποιήσεων (unread)
-    const [inbox, setInbox] = useState<Array<{ id:string; type:string; by?:string; fromUid?:string; connectionId?:string; createdAt?:any }>>([]);
+
+    // ✅ τύπος για pending με optional name/photo
+    type PendingItem = {
+      id: string;
+      requestedBy: string;
+      requestedTo: string;
+      members: string[];
+      requestedByName?: string;
+      requestedByPhoto?: string;
+    };
+
+    const [pending, setPending] = useState<PendingItem[]>([]);
+    const [inbox, setInbox] = useState<
+      Array<{ id: string; type: string; by?: string; byName?: string; fromUid?: string; fromName?: string; connectionId?: string; createdAt?: any }>
+    >([]);
 
     useEffect(() => {
       if (!me) return;
@@ -185,7 +199,6 @@ export default function DashboardHeader() {
       return () => unsub();
     }, [me, db]);
 
-    // 🔹 ΝΕΟ: notifications listener
     useEffect(() => {
       if (!me) return;
       const q = fsQuery(
@@ -218,11 +231,13 @@ export default function DashboardHeader() {
               ) : (
                 pending.map(it => (
                   <div key={it.id} className="p-3 flex items-center gap-3">
-                    <div className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-xs font-semibold">
-                      {(it.requestedBy || "U").slice(0,2).toUpperCase()}
+                    <div className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-xs font-semibold overflow-hidden">
+                      {it.requestedByPhoto
+                        ? <img src={it.requestedByPhoto} alt="" className="w-full h-full object-cover" />
+                        : (it.requestedByName ?? it.requestedBy ?? "U").slice(0,2).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{it.requestedBy}</div>
+                      <div className="font-medium truncate">{it.requestedByName ?? it.requestedBy}</div>
                       <div className="text-xs text-white/70 truncate">{it.id}</div>
                     </div>
                     <div className="flex gap-2">
@@ -259,7 +274,6 @@ export default function DashboardHeader() {
               )}
             </div>
 
-            {/* 🔹 ΝΕΟ: Notifications inbox */}
             <div className="px-2 pt-3 pb-1 text-sm text-white/70">Notifications</div>
             <div className="divide-y divide-white/10">
               {inbox.length === 0 ? (
@@ -269,13 +283,13 @@ export default function DashboardHeader() {
                   <div key={n.id} className="p-3 flex items-center gap-3">
                     <div className="flex-1 min-w-0 text-sm">
                       {n.type === "connection_accepted" && (
-                        <div><b>{n.by}</b> accepted your request</div>
+                        <div><b>{n.byName ?? n.by}</b> accepted your request</div>
                       )}
                       {n.type === "connection_declined" && (
-                        <div><b>{n.by}</b> declined your request</div>
+                        <div><b>{n.byName ?? n.by}</b> declined your request</div>
                       )}
                       {n.type === "connection_request" && (
-                        <div><b>{n.fromUid}</b> sent you a connection</div>
+                        <div><b>{n.fromName ?? n.fromUid}</b> sent you a connection</div>
                       )}
                     </div>
                     <Button
@@ -309,8 +323,7 @@ export default function DashboardHeader() {
 
       const [uSnap, pSnap] = await Promise.all([getDoc(userRef), getDoc(profRef)]);
       const u = uSnap.data() as any;
-      const fullName =
-        (pSnap.exists() ? (pSnap.data() as any)?.fullName : "") || u?.name || "";
+      const fullName = (pSnap.exists() ? (pSnap.data() as any)?.fullName : "") || u?.name || "";
 
       if (!u?.nameLower && fullName) {
         await setDoc(userRef, { name: fullName, nameLower: toSearchKey(fullName) }, { merge: true });
@@ -349,23 +362,22 @@ export default function DashboardHeader() {
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const requestConnectTo = async (targetId: string) => {
-  if (!me || me === targetId) return;
-  setActionLoadingId(targetId);
-  try {
-    await addDoc(collection(db, "network_requests"), {
-      fromUid: me,
-      toUid: targetId,
-      status: "pending",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    toast({ title: "Request sent" });
-    setResults(prev => prev.map(r => r.id === targetId ? { ...r, conn: "outgoing" } : r));
-  } finally {
-    setActionLoadingId(null);
-  }
-};
-
+    if (!me || me === targetId) return;
+    setActionLoadingId(targetId);
+    try {
+      await addDoc(collection(db, "network_requests"), {
+        fromUid: me,
+        toUid: targetId,
+        status: "pending",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      toast({ title: "Request sent" });
+      setResults((prev) => prev.map((r) => (r.id === targetId ? { ...r, conn: "outgoing" } : r)));
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
 
   const acceptFromSearch = async (targetId: string) => {
     if (!me || me === targetId) return;
@@ -454,10 +466,7 @@ export default function DashboardHeader() {
               <DropdownMenuItem onClick={goToProfile}>Profile</DropdownMenuItem>
               <DropdownMenuItem onClick={goToSettings}>Settings</DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/10" />
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={handleSignOut}
-              >
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={handleSignOut}>
                 Sign Out
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -473,9 +482,7 @@ export default function DashboardHeader() {
           {/* Header */}
           <div className="px-5 pt-5 pb-3">
             <h3 className="text-lg font-semibold">Search profiles</h3>
-            <p className="text-xs text-white/60 mt-0.5">
-              Type a name. Use ↑/↓ and Enter. Press Esc to close.
-            </p>
+            <p className="text-xs text-white/60 mt-0.5">Type a name. Use ↑/↓ and Enter. Press Esc to close.</p>
           </div>
 
           {/* Search input */}
@@ -540,9 +547,7 @@ export default function DashboardHeader() {
                   onMouseEnter={() => setActiveIndex(idx)}
                   className={[
                     "w-full text-left rounded-xl border border-white/10 px-3 py-3 transition",
-                    activeIndex === idx
-                      ? "bg-white/10 ring-1 ring-violet-400/40"
-                      : "bg-white/[0.04] hover:bg-white/[0.07]",
+                    activeIndex === idx ? "bg-white/10 ring-1 ring-violet-400/40" : "bg-white/[0.04] hover:bg-white/[0.07]",
                   ].join(" ")}
                 >
                   <div className="flex items-center gap-3">
@@ -558,9 +563,7 @@ export default function DashboardHeader() {
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">
-                        {highlight(r.name ?? "(no name)", searchText)}
-                      </div>
+                      <div className="font-medium truncate">{highlight(r.name ?? "(no name)", searchText)}</div>
                       <div className="text-xs text-white/60 truncate">{r.email}</div>
                     </div>
 

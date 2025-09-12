@@ -38,21 +38,22 @@ export const openOrCreateThread = onCall<{ otherUid: string }>(
       const now = admin.firestore.FieldValue.serverTimestamp();
 
       if (!tSnap.exists) {
-        // CREATE από server: ελεύθερα όλα τα meta
-        tx.set(tRef, {
-          members: [me, other],
-          createdAt: now,
-          lastMessageAt: now,
-          unreadCounts: { [me]: 0, [other]: 0 },
-          ...(isAccepted ? { connectionId: cRef.id } : {}),
-          // προαιρετικά αρχικοποιούμε reads για μένα
-          reads: { [me]: now },
-        }, { merge: true });
+        tx.set(
+          tRef,
+          {
+            members: [me, other],
+            createdAt: now,
+            lastMessageAt: now,
+            unreadCounts: { [me]: 0, [other]: 0 },
+            ...(isAccepted ? { connectionId: cRef.id } : {}),
+            reads: { [me]: now },
+          },
+          { merge: true }
+        );
       } else {
         const cur = tSnap.data() || {};
         const updates: any = {
           lastMessageAt: now,
-          // μηδενίζουμε του me
           [`unreadCounts.${me}`]: 0,
           [`reads.${me}`]: now,
         };
@@ -92,13 +93,16 @@ export const ensureThreadOnConnectionAccept = onDocumentWritten(
     const nowTs = admin.firestore.FieldValue.serverTimestamp();
 
     if (!tSnap.exists) {
-      await tRef.set({
-        members: [a, b],
-        createdAt: nowTs,
-        lastMessageAt: nowTs,
-        connectionId: event.params.pair, // id του connection doc
-        unreadCounts: { [a]: 0, [b]: 0 },
-      }, { merge: true });
+      await tRef.set(
+        {
+          members: [a, b],
+          createdAt: nowTs,
+          lastMessageAt: nowTs,
+          connectionId: event.params.pair,
+          unreadCounts: { [a]: 0, [b]: 0 },
+        },
+        { merge: true }
+      );
     } else {
       const cur = tSnap.data() || {};
       const updates: any = {};
@@ -108,9 +112,6 @@ export const ensureThreadOnConnectionAccept = onDocumentWritten(
   }
 );
 
-
-// --- ΠΡΟΣΘΗΚΗ ---
-
 /** Γράφει ειδοποίηση στον παραλήπτη όταν δημιουργείται request */
 export const notifOnNetworkRequestCreate = onDocumentCreated(
   { region: "europe-west1", document: "network_requests/{reqId}" },
@@ -119,42 +120,41 @@ export const notifOnNetworkRequestCreate = onDocumentCreated(
     if (!d?.fromUid || !d?.toUid) return;
     const cid = pairId(d.fromUid, d.toUid);
 
-    // upsert connections: pending
-    await db.doc(`connections/${cid}`).set({
-      members: [d.fromUid, d.toUid],
-      requestedBy: d.fromUid,
-      requestedTo: d.toUid,
-      status: "pending",
+    // ➜ Φέρε όνομα & avatar του αποστολέα (fromUid)
+    const profSnap = await db.doc(`users/${d.fromUid}/profile/main`).get();
+    let fromName: string | null = null;
+    let fromAvatar: string | null = null;
+    if (profSnap.exists) {
+      const pd = profSnap.data() as any;
+      fromName = pd.fullName || null;
+      fromAvatar = pd.photoURL || pd.avatarUrl || pd.picture || null;
+    }
+
+    // upsert connections: pending (+ ονομα/φωτο αποστολέα για το bell)
+    await db.doc(`connections/${cid}`).set(
+      {
+        members: [d.fromUid, d.toUid],
+        requestedBy: d.fromUid,
+        requestedTo: d.toUid,
+        requestedByName: fromName,
+        requestedByPhoto: fromAvatar,
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // notification στον toUid με fromName
+    await db.collection(`users/${d.toUid}/notifications`).add({
+      type: "connection_request",
+      fromUid: d.fromUid,
+      fromName,
+      connectionId: cid,
+      requestId: event.params.reqId,
+      read: false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-
-
-    
-
-   // Πάρε το προφίλ του fromUid
-const profSnap = await db.doc(`users/${d.fromUid}/profile/main`).get();
-let fromName: string | null = null;
-let fromAvatar: string | null = null;
-
-if (profSnap.exists) {
-  const pd = profSnap.data() as any;
-  fromName = pd.fullName || null;
-  fromAvatar = pd.photoURL || pd.avatarUrl || pd.picture || null;
-}
-
-// notification στον toUid
-await db.collection(`users/${d.toUid}/notifications`).add({
-  type: "connection_request",
-  fromUid: d.fromUid,
-  fromName,        // 👈 αποθηκεύεις το username που δήλωσε
-  fromAvatar,      // 👈 προαιρετικά avatar
-  connectionId: cid,
-  requestId: event.params.reqId,
-  read: false,
-  createdAt: admin.firestore.FieldValue.serverTimestamp(),
-});
-
+    });
   }
 );
 
@@ -163,7 +163,7 @@ export const notifOnNetworkRequestUpdate = onDocumentWritten(
   { region: "europe-west1", document: "network_requests/{reqId}" },
   async (event) => {
     const before = event.data?.before.data() as any | undefined;
-    const after  = event.data?.after.data()  as any | undefined;
+    const after = event.data?.after.data() as any | undefined;
     if (!after) return;
     if (before?.status === after.status) return;
 
@@ -171,17 +171,25 @@ export const notifOnNetworkRequestUpdate = onDocumentWritten(
     if (!fromUid || !toUid) return;
     const cid = pairId(fromUid, toUid);
 
-    await db.doc(`connections/${cid}`).set({
-      members: [fromUid, toUid],
-      status,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
+    await db.doc(`connections/${cid}`).set(
+      {
+        members: [fromUid, toUid],
+        status,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // ➜ όνομα του toUid για ανθρώπινο notification (byName)
+    let byName: string | null = null;
+    const toProf = await db.doc(`users/${toUid}/profile/main`).get();
+    if (toProf.exists) byName = (toProf.data() as any)?.fullName || null;
 
     if (status === "accepted") {
-      // προαιρετικά – thread θα το καλύψει ήδη το ensureThreadOnConnectionAccept
       await db.collection(`users/${fromUid}/notifications`).add({
         type: "connection_accepted",
         by: toUid,
+        byName,
         connectionId: cid,
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -190,6 +198,7 @@ export const notifOnNetworkRequestUpdate = onDocumentWritten(
       await db.collection(`users/${fromUid}/notifications`).add({
         type: `connection_${status}`,
         by: toUid,
+        byName,
         connectionId: cid,
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -198,22 +207,28 @@ export const notifOnNetworkRequestUpdate = onDocumentWritten(
   }
 );
 
-/** Αν αλλάζεις connections απευθείας (από το Bell) -> γράψε notifications */
+/** Αν αλλάζεις connections απευθείας (από το Bell) -> γράψε notifications με byName */
 export const notifOnConnectionStatusChange = onDocumentWritten(
   { region: "europe-west1", document: "connections/{cid}" },
   async (event) => {
     const before = event.data?.before.data() as any | undefined;
-    const after  = event.data?.after.data()  as any | undefined;
+    const after = event.data?.after.data() as any | undefined;
     if (!after) return;
     if (before?.status === after.status) return;
 
     const { status, requestedBy, requestedTo } = after;
     if (!requestedBy || !requestedTo) return;
 
+    // ➜ όνομα requestedTo για να φαίνεται άνθρωπος στο inbox του requestedBy
+    let byName: string | null = null;
+    const toProf = await db.doc(`users/${requestedTo}/profile/main`).get();
+    if (toProf.exists) byName = (toProf.data() as any)?.fullName || null;
+
     if (status === "accepted") {
       await db.collection(`users/${requestedBy}/notifications`).add({
         type: "connection_accepted",
         by: requestedTo,
+        byName,
         connectionId: event.params.cid,
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -222,6 +237,7 @@ export const notifOnConnectionStatusChange = onDocumentWritten(
       await db.collection(`users/${requestedBy}/notifications`).add({
         type: "connection_declined",
         by: requestedTo,
+        byName,
         connectionId: event.params.cid,
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -232,7 +248,6 @@ export const notifOnConnectionStatusChange = onDocumentWritten(
 
 /**
  * ✅ Υπάρχον meta-sync στο νέο μήνυμα (κρατάμε όπως το είχες)
- * Ενημερώνει lastMessage*, reads/sender, unreadCounts/other κ.λπ.
  */
 export const syncThreadOnMessageCreate = onDocumentCreated(
   { region: "europe-west1", document: "threads/{threadId}/messages/{msgId}" },
@@ -279,9 +294,5 @@ export const syncThreadOnMessageCreate = onDocumentCreated(
         { merge: true }
       );
     });
-    
   }
-
-
-  
 );
